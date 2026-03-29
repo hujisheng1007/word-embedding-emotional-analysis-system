@@ -10,6 +10,7 @@ class RuleDefinition:
     level: str
     score: float
     keywords: tuple[str, ...]
+    trigger_groups: tuple[tuple[str, ...], ...]
     rule_reason: str
     llm_explanation: str
 
@@ -27,6 +28,7 @@ def get_rule_definitions() -> tuple[RuleDefinition, ...]:
             level=item["level"],
             score=item["score"],
             keywords=tuple(item["keywords"]),
+            trigger_groups=tuple(tuple(group) for group in item.get("trigger_groups", [])),
             rule_reason=item["rule_reason"],
             llm_explanation=item["llm_explanation"],
         )
@@ -43,7 +45,7 @@ def get_default_result() -> RuleDefinition:
         level=item["level"],
         score=item["score"],
         keywords=tuple(item["keywords"]),
+        trigger_groups=tuple(tuple(group) for group in item.get("trigger_groups", [])),
         rule_reason=item["rule_reason"],
         llm_explanation=item["llm_explanation"],
     )
-

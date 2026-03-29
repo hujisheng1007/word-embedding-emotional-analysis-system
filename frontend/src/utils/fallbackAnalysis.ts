@@ -10,8 +10,9 @@ interface RuleDefinition {
   level: string;
   score: number;
   keywords: string[];
-  rule_reason: string;
-  llm_explanation: string;
+  triggerGroups?: string[][];
+  ruleReason: string;
+  llmExplanation: string;
 }
 
 const rules: RuleDefinition[] = [
@@ -19,25 +20,29 @@ const rules: RuleDefinition[] = [
     category: "心理风险",
     level: "高",
     score: 0.92,
-    keywords: ["崩溃", "不想继续", "活不下去", "不想活了", "结束自己"],
-    rule_reason: "命中心理高风险关键词，规则层判定为优先关注对象。",
-    llm_explanation: "文本包含明显极端消极和绝望表达，建议优先人工复核。"
+    keywords: ["不想活了", "活不下去", "结束自己", "结束生命", "轻生", "自杀", "没有活着的意义"],
+    ruleReason: "命中心理高风险强触发表达，规则层判定为优先关注对象。",
+    llmExplanation: "文本包含明显的极端消极或自伤倾向表达，建议优先人工复核。"
   },
   {
     category: "舆情风险",
     level: "中",
     score: 0.76,
-    keywords: ["投诉", "学校", "曝光", "离谱", "维权", "垃圾"],
-    rule_reason: "命中校园舆情相关词，并伴随负面或扩散倾向表达。",
-    llm_explanation: "文本含有较强负面评价或公开扩散倾向，存在舆情传播风险。"
+    keywords: ["学校", "学院", "宿舍", "食堂", "老师", "辅导员", "课程", "招生", "管理", "投诉", "曝光", "维权", "举报", "发帖", "热搜", "扩散", "离谱", "垃圾", "推诿", "不作为"],
+    triggerGroups: [
+      ["学校", "学院", "宿舍", "食堂", "老师", "辅导员", "课程", "招生", "管理", "校园"],
+      ["投诉", "曝光", "维权", "举报", "发帖", "热搜", "扩散", "离谱", "垃圾", "推诿", "不作为"]
+    ],
+    ruleReason: "文本同时出现校园对象和负面扩散倾向表达，存在舆情传播风险。",
+    llmExplanation: "文本对校园相关对象表达了较强负面评价，并伴随扩散或对抗倾向，建议重点关注。"
   },
   {
     category: "一般负面",
     level: "低",
     score: 0.43,
-    keywords: ["烦", "累", "倒霉", "难受", "无语", "不开心"],
-    rule_reason: "命中一般负面情绪词，但未达到高风险触发条件。",
-    llm_explanation: "文本带有一定消极情绪，建议结合上下文继续观察。"
+    keywords: ["太累", "很累", "疲惫", "难受", "不开心", "压力", "焦虑", "无奈", "不知所措", "崩溃", "心烦", "委屈", "失落", "烦躁", "烦闷"],
+    ruleReason: "命中一般负面情绪词，但未达到高风险触发条件。",
+    llmExplanation: "文本体现出一定负面情绪，建议结合上下文继续观察。"
   }
 ];
 
@@ -46,15 +51,66 @@ const defaultResult: RuleDefinition = {
   level: "正常",
   score: 0.08,
   keywords: [],
-  rule_reason: "未命中明显风险规则。",
-  llm_explanation: "当前文本整体为正常表达。"
+  ruleReason: "未命中明显风险规则。",
+  llmExplanation: "当前文本整体为日常表达。"
 };
+
+const stopwords = new Set([
+  "我们",
+  "你们",
+  "他们",
+  "她们",
+  "自己",
+  "一个",
+  "这个",
+  "那个",
+  "不是",
+  "然后",
+  "因为",
+  "所以",
+  "就是",
+  "还有",
+  "如果",
+  "的话",
+  "时候",
+  "觉得",
+  "可能",
+  "现在",
+  "已经",
+  "没有",
+  "这样",
+  "一些",
+  "很多",
+  "这种",
+  "比较",
+  "可以",
+  "一种",
+  "什么",
+  "怎么",
+  "这些",
+  "应该",
+  "比如",
+  "感觉",
+  "方面",
+  "能够",
+  "问题",
+  "工作",
+  "其实"
+]);
+
+const edgeStopChars = new Set("的了一是在和与及就都也很把让对给将被向从到地得着而并但或其我个这那".split(""));
+
+function matchesRule(text: string, rule: RuleDefinition): boolean {
+  if (rule.triggerGroups?.length) {
+    return rule.triggerGroups.every((group) => group.some((keyword) => text.includes(keyword)));
+  }
+
+  return rule.keywords.some((keyword) => text.includes(keyword));
+}
 
 export function analyzeTextFallback(text: string): AnalysisResult {
   const normalizedText = text.trim();
-  const matchedRule =
-    rules.find((rule) => rule.keywords.some((keyword) => normalizedText.includes(keyword))) ??
-    defaultResult;
+  const matchedRule = rules.find((rule) => matchesRule(normalizedText, rule)) ?? defaultResult;
   const keywords = matchedRule.keywords.filter((keyword) => normalizedText.includes(keyword));
 
   return {
@@ -63,10 +119,69 @@ export function analyzeTextFallback(text: string): AnalysisResult {
     level: matchedRule.level,
     score: matchedRule.score,
     keywords,
-    rule_reason: matchedRule.rule_reason,
-    llm_explanation: matchedRule.llm_explanation,
+    rule_reason: matchedRule.ruleReason,
+    llm_explanation: matchedRule.llmExplanation,
     needs_attention: matchedRule.level === "中" || matchedRule.level === "高"
   };
+}
+
+function extractWordcloudKeywords(texts: string[]): KeywordCount[] {
+  const counts: Record<string, number> = {};
+
+  texts.forEach((text) => {
+    const seen = new Set<string>();
+    const blocks = text.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+    blocks.forEach((block) => {
+      const maxN = Math.min(4, block.length);
+      for (let size = 2; size <= maxN; size += 1) {
+        for (let start = 0; start <= block.length - size; start += 1) {
+          const token = block.slice(start, start + size);
+          if (!isValidToken(token)) {
+            continue;
+          }
+          seen.add(token);
+        }
+      }
+    });
+    seen.forEach((token) => {
+      counts[token] = (counts[token] ?? 0) + 1;
+    });
+  });
+
+  const selected: Array<[string, number]> = [];
+  Object.entries(counts)
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+      if (right[0].length !== left[0].length) {
+        return right[0].length - left[0].length;
+      }
+      return left[0].localeCompare(right[0], "zh-CN");
+    })
+    .forEach(([token, count]) => {
+      if (count < 2) {
+        return;
+      }
+      if (selected.some(([chosen, chosenCount]) => chosen.includes(token) && chosenCount >= count)) {
+        return;
+      }
+      if (selected.length < 40) {
+        selected.push([token, count]);
+      }
+    });
+
+  return selected.map(([keyword, count]) => ({ keyword, count }));
+}
+
+function isValidToken(token: string): boolean {
+  if (token.length < 2 || stopwords.has(token)) {
+    return false;
+  }
+  if (edgeStopChars.has(token[0]) || edgeStopChars.has(token[token.length - 1])) {
+    return false;
+  }
+  return new Set(token).size > 1;
 }
 
 function buildSummary(results: AnalysisResult[]): BatchAnalysisSummary {
@@ -92,6 +207,7 @@ function buildSummary(results: AnalysisResult[]): BatchAnalysisSummary {
     category_distribution: categoryDistribution,
     level_distribution: levelDistribution,
     top_keywords: topKeywords,
+    wordcloud_keywords: extractWordcloudKeywords(results.map((result) => result.text)),
     attention_count: results.filter((result) => result.needs_attention).length,
     high_risk_texts: results.filter((result) => result.needs_attention).slice(0, 10)
   };

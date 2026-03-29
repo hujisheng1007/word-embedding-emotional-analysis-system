@@ -41,6 +41,40 @@
 }
 ```
 
+## `GET /api/public-sources`
+
+返回可用于演示的公开数据源列表。
+
+## `POST /api/public-sources/fetch`
+
+请求体：
+
+```json
+{
+  "source_id": "v2ex-hot",
+  "limit": 6
+}
+```
+
+响应体结构：
+
+```json
+{
+  "source": {
+    "id": "v2ex-hot",
+    "name": "V2EX 热门主题",
+    "description": "获取公开社区 V2EX 首页 RSS 标题，演示从互联网抓取少量公开文本并分析。",
+    "feed_url": "https://www.v2ex.com/index.xml"
+  },
+  "fetched_count": 6,
+  "texts": [],
+  "analysis": {
+    "summary": {},
+    "results": []
+  }
+}
+```
+
 响应体结构：
 
 ```json

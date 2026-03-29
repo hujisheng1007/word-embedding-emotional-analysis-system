@@ -1,0 +1,232 @@
+{
+  "source_file": "教育家型教师访谈材料汇总.docx",
+  "paragraph_count": 300,
+  "answer_count": 160,
+  "segment_count": 669,
+  "category_distribution": {
+    "正常文本": 655,
+    "一般负面": 13,
+    "舆情风险": 1
+  },
+  "level_distribution": {
+    "正常": 655,
+    "低": 13,
+    "中": 1
+  },
+  "attention_count": 1,
+  "top_keywords": [
+    {
+      "keyword": "压力",
+      "count": 7
+    },
+    {
+      "keyword": "疲惫",
+      "count": 2
+    },
+    {
+      "keyword": "焦虑",
+      "count": 2
+    },
+    {
+      "keyword": "难受",
+      "count": 1
+    },
+    {
+      "keyword": "不知所措",
+      "count": 1
+    },
+    {
+      "keyword": "崩溃",
+      "count": 1
+    },
+    {
+      "keyword": "老师",
+      "count": 1
+    },
+    {
+      "keyword": "举报",
+      "count": 1
+    }
+  ],
+  "wordcloud_keywords": [
+    {
+      "keyword": "教育",
+      "count": 235
+    },
+    {
+      "keyword": "老师",
+      "count": 217
+    },
+    {
+      "keyword": "学生",
+      "count": 176
+    },
+    {
+      "keyword": "教师",
+      "count": 120
+    },
+    {
+      "keyword": "教学",
+      "count": 97
+    },
+    {
+      "keyword": "教育家",
+      "count": 93
+    },
+    {
+      "keyword": "孩子",
+      "count": 75
+    },
+    {
+      "keyword": "学习",
+      "count": 73
+    },
+    {
+      "keyword": "影响",
+      "count": 73
+    },
+    {
+      "keyword": "学校",
+      "count": 60
+    },
+    {
+      "keyword": "家长",
+      "count": 59
+    },
+    {
+      "keyword": "理念",
+      "count": 49
+    },
+    {
+      "keyword": "发展",
+      "count": 47
+    },
+    {
+      "keyword": "培养",
+      "count": 46
+    },
+    {
+      "keyword": "能力",
+      "count": 46
+    },
+    {
+      "keyword": "知识",
+      "count": 45
+    },
+    {
+      "keyword": "成长",
+      "count": 43
+    },
+    {
+      "keyword": "非常",
+      "count": 43
+    },
+    {
+      "keyword": "当时",
+      "count": 42
+    },
+    {
+      "keyword": "需要",
+      "count": 41
+    },
+    {
+      "keyword": "比如说",
+      "count": 39
+    },
+    {
+      "keyword": "重要",
+      "count": 39
+    },
+    {
+      "keyword": "专业",
+      "count": 38
+    },
+    {
+      "keyword": "肯定",
+      "count": 37
+    },
+    {
+      "keyword": "更多",
+      "count": 36
+    },
+    {
+      "keyword": "研究",
+      "count": 36
+    },
+    {
+      "keyword": "特别",
+      "count": 35
+    },
+    {
+      "keyword": "职业",
+      "count": 33
+    },
+    {
+      "keyword": "人家",
+      "count": 32
+    },
+    {
+      "keyword": "时间",
+      "count": 32
+    },
+    {
+      "keyword": "精神",
+      "count": 32
+    },
+    {
+      "keyword": "学科",
+      "count": 31
+    },
+    {
+      "keyword": "生活",
+      "count": 31
+    },
+    {
+      "keyword": "过程",
+      "count": 31
+    },
+    {
+      "keyword": "里面",
+      "count": 31
+    },
+    {
+      "keyword": "会有",
+      "count": 29
+    },
+    {
+      "keyword": "关注",
+      "count": 29
+    },
+    {
+      "keyword": "年轻",
+      "count": 29
+    },
+    {
+      "keyword": "开始",
+      "count": 29
+    },
+    {
+      "keyword": "社会",
+      "count": 29
+    }
+  ],
+  "question_distribution": {
+    "Q1": 26,
+    "Q2": 53,
+    "Q3": 35,
+    "Q4": 34,
+    "Q5": 21,
+    "Q6": 61,
+    "Q7": 25,
+    "Q8": 44,
+    "Q9": 44,
+    "Q10": 31,
+    "Q11": 29,
+    "Q12": 47,
+    "Q13": 30,
+    "Q14": 62,
+    "Q15": 34,
+    "Q16": 49,
+    "Q17": 44
+  }
+}

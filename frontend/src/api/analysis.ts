@@ -3,7 +3,15 @@ import type {
   AnalysisResult,
   BatchAnalysisRequest,
   BatchAnalysisResponse,
-  SingleAnalysisRequest
+  DatasetOption,
+  ExplanationRequest,
+  ExplanationResponse,
+  FoundationModelProfile,
+  PublicSource,
+  PublicSourceFetchRequest,
+  PublicSourceFetchResponse,
+  SingleAnalysisRequest,
+  SystemStatusResponse
 } from "../types/analysis";
 
 export function analyzeText(payload: SingleAnalysisRequest): Promise<AnalysisResult> {
@@ -24,4 +32,53 @@ export function analyzeBatch(payload: BatchAnalysisRequest): Promise<BatchAnalys
       ...payload
     })
   });
+}
+
+export function generateExplanation(
+  payload: ExplanationRequest
+): Promise<ExplanationResponse> {
+  return request<ExplanationResponse>("/explanations/generate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getDefaultDataset(): Promise<BatchAnalysisResponse> {
+  return request<BatchAnalysisResponse>("/datasets/default");
+}
+
+export function listDatasets(): Promise<DatasetOption[]> {
+  return request<DatasetOption[]>("/datasets");
+}
+
+export function getDataset(datasetId: string): Promise<BatchAnalysisResponse> {
+  return request<BatchAnalysisResponse>(`/datasets/${datasetId}`);
+}
+
+export function listFoundationModelProfiles(): Promise<FoundationModelProfile[]> {
+  return request<FoundationModelProfile[]>("/foundation-model/profiles");
+}
+
+export function activateFoundationModelProfile(profileId: string): Promise<SystemStatusResponse> {
+  return request<SystemStatusResponse>("/foundation-model/activate", {
+    method: "POST",
+    body: JSON.stringify({ profile_id: profileId })
+  });
+}
+
+export function listPublicSources(): Promise<PublicSource[]> {
+  return request<PublicSource[]>("/public-sources");
+}
+
+export function fetchPublicSource(
+  payload: PublicSourceFetchRequest
+): Promise<PublicSourceFetchResponse> {
+  return request<PublicSourceFetchResponse>("/public-sources/fetch", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getSystemStatus(): Promise<SystemStatusResponse> {
+  return request<SystemStatusResponse>("/system/status");
 }

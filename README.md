@@ -44,3 +44,42 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## 一键启动
+
+在项目根目录可以直接使用：
+
+```powershell
+.\start_dev.ps1
+```
+
+或者双击：
+
+```text
+start_dev.bat
+```
+
+脚本会自动打开两个终端窗口：
+
+- 后端：`http://127.0.0.1:8000`
+- 前端：`http://127.0.0.1:5173`
+
+如果脚本提示缺少 `.venv` 或 `node_modules`，先按上面的“启动准备”安装依赖。
+
+## 模型接入
+
+后端已经预留了模型接入层，配置示例见：
+
+- [backend/.env.example](d:/大创/backend/.env.example)
+
+当前支持两类可选能力：
+
+- 小模型分类融合
+- 本地大模型解释增强
+
+当前项目还提供了一个独立本地 Llama 服务启动脚本：
+
+- [start_llm_service.ps1](d:/大创/start_llm_service.ps1)
+- [start_llm_service.bat](d:/大创/start_llm_service.bat)
+
+如果 `backend/.env` 中设置了 `LLM_ENABLED=true`，那么运行 [start_dev.ps1](d:/大创/start_dev.ps1) 时会自动一并拉起本地 Llama 服务。
