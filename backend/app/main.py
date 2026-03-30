@@ -4,9 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.analysis import router as analysis_router
 
 app = FastAPI(
-    title="Campus Risk Demo API",
+    title="Educator Mapping Demo API",
     version="0.1.0",
-    description="校园风险文本识别与可视化分析平台后端骨架",
+    description="基于教育家型教师访谈底库的在线文本量化映射分析平台",
 )
 
 app.add_middleware(

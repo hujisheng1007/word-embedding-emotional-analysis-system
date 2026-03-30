@@ -10,6 +10,7 @@ import type {
   PublicSource,
   PublicSourceFetchRequest,
   PublicSourceFetchResponse,
+  ReferenceLibraryResponse,
   SingleAnalysisRequest,
   SystemStatusResponse
 } from "../types/analysis";
@@ -53,6 +54,10 @@ export function listDatasets(): Promise<DatasetOption[]> {
 
 export function getDataset(datasetId: string): Promise<BatchAnalysisResponse> {
   return request<BatchAnalysisResponse>(`/datasets/${datasetId}`);
+}
+
+export function getReferenceLibrary(): Promise<ReferenceLibraryResponse> {
+  return request<ReferenceLibraryResponse>("/reference-library");
 }
 
 export function listFoundationModelProfiles(): Promise<FoundationModelProfile[]> {

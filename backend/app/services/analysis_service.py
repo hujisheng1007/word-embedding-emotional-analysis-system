@@ -1,20 +1,29 @@
+from __future__ import annotations
+
 from collections import Counter
 
-from app.engines.foundation_model.engine import FoundationModelEngine, FoundationModelPrediction
+from app.engines.foundation_model.engine import FoundationModelEngine
 from app.engines.llm.engine import LLMEngine
-from app.engines.rules.engine import RuleDefinition, get_default_result, get_rule_definitions
-from app.engines.small_model.engine import SmallModelEngine, SmallModelPrediction
+from app.engines.small_model.engine import SmallModelEngine
 from app.schemas.analysis import (
     AnalysisRequest,
     AnalysisResult,
     BatchAnalysisRequest,
     BatchAnalysisResponse,
     BatchAnalysisSummary,
+    DimensionScore,
     ExplanationRequest,
+    IndicatorScore,
     KeywordCount,
 )
+from app.services.reference_library_service import ReferenceLibraryService
 from app.services.scoring_service import ScoringService
+from app.utils.text_segmentation import split_text_for_analysis
 from app.utils.text_stats import extract_wordcloud_keywords
+
+
+LONG_TEXT_CHAR_THRESHOLD = 320
+LONG_TEXT_SEGMENT_THRESHOLD = 3
 
 
 class AnalysisService:
@@ -24,23 +33,21 @@ class AnalysisService:
         foundation_model_engine: FoundationModelEngine | None = None,
         llm_engine: LLMEngine | None = None,
         scoring_service: ScoringService | None = None,
+        reference_library_service: ReferenceLibraryService | None = None,
     ) -> None:
         self.small_model_engine = small_model_engine or SmallModelEngine()
         self.foundation_model_engine = foundation_model_engine or FoundationModelEngine()
         self.llm_engine = llm_engine or LLMEngine()
         self.scoring_service = scoring_service or ScoringService()
+        self.reference_library_service = reference_library_service or ReferenceLibraryService()
 
     def analyze_text(self, payload: AnalysisRequest) -> AnalysisResult:
-        return self._analyze_from_text(payload.text, use_llm=True, use_foundation_model=True)
+        return self._analyze_from_text(payload.text, use_llm=True)
 
     def analyze_batch(self, payload: BatchAnalysisRequest) -> BatchAnalysisResponse:
-        results = [
-            self._analyze_from_text(text, use_llm=False, use_foundation_model=False)
-            for text in payload.texts
-        ]
+        results = [self._analyze_from_text(text, use_llm=False) for text in payload.texts]
         self._enrich_batch_explanations(results)
-        summary = self._build_summary(results)
-        return BatchAnalysisResponse(summary=summary, results=results)
+        return BatchAnalysisResponse(summary=self._build_summary(results), results=results)
 
     def generate_explanation(self, payload: ExplanationRequest) -> str:
         text = payload.text.strip()
@@ -51,6 +58,8 @@ class AnalysisService:
             keywords=payload.keywords,
             rule_reason=payload.rule_reason,
             base_fallback=payload.fallback.strip() or None,
+            dimension_scores=[],
+            indicator_scores=[],
         )
         return self._generate_explanation(
             text=text,
@@ -61,71 +70,70 @@ class AnalysisService:
             fallback=fallback,
         )
 
-    def _analyze_from_text(
-        self,
-        raw_text: str,
-        *,
-        use_llm: bool,
-        use_foundation_model: bool,
-    ) -> AnalysisResult:
+    def _analyze_from_text(self, raw_text: str, *, use_llm: bool) -> AnalysisResult:
         text = raw_text.strip()
-        matched_rule = self._match_rule(text)
-        matched_keywords = self._collect_matched_keywords(text, matched_rule)
-        fused = self._fuse_rule_and_model(text=text, rule=matched_rule, keywords=matched_keywords)
-
-        if use_foundation_model:
-            foundation_prediction = self._safe_foundation_model_predict(text)
-            fused = self._apply_foundation_model_prediction(
-                fused=fused,
-                prediction=foundation_prediction,
-            )
-
+        reference_library = self.reference_library_service.get_reference_library()
         score_result = self.scoring_service.score_text(
             text=text,
-            category=str(fused["category"]),
-            keywords=list(fused["keywords"]),
-            model_score=float(fused["model_score"]) if fused["model_score"] is not None else None,
+            reference_dimensions=reference_library.dimensions,
         )
-        fused["score"] = score_result.score
-        fused["level"] = score_result.level
-        fused["score_breakdown"] = score_result.breakdown
+        is_long_text = (
+            len(text) >= LONG_TEXT_CHAR_THRESHOLD
+            or score_result.segment_count >= LONG_TEXT_SEGMENT_THRESHOLD
+        )
 
         fallback_explanation = self._build_contextual_fallback(
             text=text,
-            category=str(fused["category"]),
-            level=str(fused["level"]),
-            keywords=list(fused["keywords"]),
-            rule_reason=str(fused["rule_reason"]),
-            base_fallback=str(fused["llm_explanation"]),
+            category=score_result.category,
+            level=score_result.level,
+            keywords=score_result.matched_keywords,
+            rule_reason=score_result.rule_reason,
+            base_fallback="",
+            is_long_text=is_long_text,
+            dimension_scores=score_result.dimension_scores,
+            indicator_scores=score_result.indicator_scores,
         )
 
         explanation = fallback_explanation
         if use_llm:
             explanation = self._generate_explanation(
                 text=text,
-                category=str(fused["category"]),
-                level=str(fused["level"]),
-                keywords=list(fused["keywords"]),
-                rule_reason=str(fused["rule_reason"]),
+                category=score_result.category,
+                level=score_result.level,
+                keywords=score_result.matched_keywords,
+                rule_reason=score_result.rule_reason,
                 fallback=fallback_explanation,
             )
 
-        level = str(fused["level"])
+        segment_previews = self._build_segment_previews(
+            text=text,
+            reference_library=reference_library,
+            enabled=is_long_text,
+        )
+
         return AnalysisResult(
             text=text,
-            category=str(fused["category"]),
-            level=level,
-            score=float(fused["score"]),
-            keywords=list(fused["keywords"]),
-            rule_reason=str(fused["rule_reason"]),
+            text_length=len(text),
+            category=score_result.category,
+            level=score_result.level,
+            score=score_result.score,
+            keywords=score_result.matched_keywords,
+            rule_reason=score_result.rule_reason,
             llm_explanation=explanation,
-            needs_attention=level in {"中", "高"},
-            score_breakdown=list(fused["score_breakdown"]),
+            needs_attention=score_result.level in {"初显现", "中显现", "高显现"},
+            score_breakdown=score_result.breakdown,
+            dominant_dimension_id=score_result.dominant_dimension_id,
+            dimension_scores=score_result.dimension_scores,
+            indicator_scores=score_result.indicator_scores,
+            reference_quotes=score_result.reference_quotes,
+            is_long_text=is_long_text,
+            segment_count=score_result.segment_count,
+            segment_previews=segment_previews,
         )
 
     def _enrich_batch_explanations(self, results: list[AnalysisResult]) -> None:
-        attention_results = [result for result in results if result.needs_attention][:1]
-        for result in attention_results:
+        showcase_results = [result for result in results if result.needs_attention][:1]
+        for result in showcase_results:
             result.llm_explanation = self._generate_explanation(
                 text=result.text,
                 category=result.category,
@@ -134,107 +142,6 @@ class AnalysisService:
                 rule_reason=result.rule_reason,
                 fallback=result.llm_explanation,
             )
-
-    def _match_rule(self, text: str) -> RuleDefinition:
-        for rule in get_rule_definitions():
-            if self._rule_matches(text, rule):
-                return rule
-        return get_default_result()
-
-    def _rule_matches(self, text: str, rule: RuleDefinition) -> bool:
-        if rule.trigger_groups:
-            return all(any(keyword in text for keyword in group) for group in rule.trigger_groups)
-        return any(keyword in text for keyword in rule.keywords)
-
-    def _collect_matched_keywords(self, text: str, rule: RuleDefinition) -> list[str]:
-        return [keyword for keyword in rule.keywords if keyword in text]
-
-    def _fuse_rule_and_model(
-        self,
-        *,
-        text: str,
-        rule: RuleDefinition,
-        keywords: list[str],
-    ) -> dict[str, object]:
-        model_result = self._safe_small_model_predict(text)
-        if model_result is None:
-            return {
-                "category": rule.category,
-                "level": rule.level,
-                "score": rule.score,
-                "keywords": keywords,
-                "rule_reason": rule.rule_reason,
-                "llm_explanation": rule.llm_explanation,
-                "model_score": None,
-                "score_breakdown": [],
-            }
-
-        if rule.level == "高":
-            return {
-                "category": rule.category,
-                "level": rule.level,
-                "score": max(rule.score, model_result.score),
-                "keywords": keywords,
-                "rule_reason": f"{rule.rule_reason} 小模型参考：{model_result.reason}",
-                "llm_explanation": rule.llm_explanation,
-                "model_score": model_result.score,
-                "score_breakdown": [],
-            }
-
-        fused_category = model_result.category if rule.category == "正常文本" else rule.category
-        fused_level = self._pick_higher_level(rule.level, model_result.level)
-
-        return {
-            "category": fused_category,
-            "level": fused_level,
-            "score": max(rule.score, model_result.score),
-            "keywords": keywords,
-            "rule_reason": f"{rule.rule_reason} 小模型参考：{model_result.reason}",
-            "llm_explanation": rule.llm_explanation,
-            "model_score": model_result.score,
-            "score_breakdown": [],
-        }
-
-    def _safe_small_model_predict(self, text: str) -> SmallModelPrediction | None:
-        try:
-            return self.small_model_engine.predict(text)
-        except Exception:
-            return None
-
-    def _safe_foundation_model_predict(self, text: str) -> FoundationModelPrediction | None:
-        try:
-            return self.foundation_model_engine.predict(text)
-        except Exception:
-            return None
-
-    def _apply_foundation_model_prediction(
-        self,
-        *,
-        fused: dict[str, object],
-        prediction: FoundationModelPrediction | None,
-    ) -> dict[str, object]:
-        if prediction is None:
-            return fused
-
-        category = str(fused["category"])
-        level = str(fused["level"])
-        score = float(fused["score"])
-        rule_reason = str(fused["rule_reason"])
-
-        # 明确的心理高危硬触发仍保留最高优先级，避免被模型误降级。
-        if category == "心理风险" and level == "高":
-            fused["score"] = max(score, prediction.score)
-            fused["rule_reason"] = f"{rule_reason} 大模型参考：{prediction.reason}"
-            fused["model_score"] = prediction.score
-            return fused
-
-        # 其他情况默认由当前选中的大模型给出主判断，规则层作为可解释辅助。
-        fused["category"] = prediction.category
-        fused["level"] = prediction.level
-        fused["score"] = max(score, prediction.score)
-        fused["rule_reason"] = f"{rule_reason} 大模型参考：{prediction.reason}"
-        fused["model_score"] = prediction.score
-        return fused
 
     def _generate_explanation(
         self,
@@ -258,7 +165,7 @@ class AnalysisService:
             return foundation_explanation
 
         try:
-            return (
+            candidate = (
                 self.llm_engine.generate_explanation(
                     text=text,
                     category=category,
@@ -269,6 +176,9 @@ class AnalysisService:
                 )
                 or fallback
             )
+            if self._looks_like_prompt_leak(candidate):
+                return fallback
+            return candidate
         except Exception:
             return fallback
 
@@ -303,29 +213,102 @@ class AnalysisService:
         keywords: list[str],
         rule_reason: str,
         base_fallback: str | None = None,
+        is_long_text: bool = False,
+        dimension_scores: list[DimensionScore] | None = None,
+        indicator_scores: list[IndicatorScore] | None = None,
     ) -> str:
         snippet = self._trim_text(text)
-        keyword_text = f"重点词包括“{'、'.join(keywords[:3])}”" if keywords else ""
+        keyword_text = f"命中的线索包括“{'、'.join(keywords[:4])}”" if keywords else ""
+        dimension_text = self._format_dimension_summary(dimension_scores or [])
+        indicator_text = self._format_indicator_summary(indicator_scores or [], limit=3)
+        metric_text = self._format_metric_summary(indicator_scores or [])
+        detail_parts = [part for part in (dimension_text, indicator_text, metric_text) if part]
+        detail_text = "；".join(detail_parts)
 
-        if category == "心理风险":
-            return (
-                f"这段内容出现了明显的极端消极或自伤倾向表达，当前判定为{level}风险，"
-                f"建议结合原文尽快人工复核。"
-            )
-        if category == "舆情风险":
-            return (
-                f"这段内容提到了校园相关对象，并伴随投诉、曝光或扩散倾向，当前判定为{level}舆情风险，"
-                f"建议结合上下文持续关注。"
-            )
-        if category == "一般负面":
-            if keyword_text:
-                return f"这段内容带有较明显的负面情绪，{keyword_text}，目前更接近一般负面表达。"
-            return "这段内容主要表达了压力、疲惫或不适感，当前更接近一般负面情绪表达。"
+        if is_long_text:
+            pieces = [
+                "这是一段较长文本，系统已先按叙事片段拆分后再汇总分析。",
+                f"整体上它在“{category}”层面最突出，当前为{level}。",
+            ]
+            if detail_text:
+                pieces.append(detail_text + "。")
+            elif keyword_text:
+                pieces.append(keyword_text + "。")
+            return "".join(pieces)
+
+        if keyword_text:
+            pieces = [
+                f"这段输入在论文对应的“{category}”层面上最突出，当前为{level}。",
+                keyword_text + "。",
+            ]
+            if detail_text:
+                pieces.append(f"进一步看，{detail_text}。")
+            return "".join(pieces)
+
         if snippet:
-            return f"这段内容更像日常求助或信息询问，暂未发现与“{snippet}”相关的明显风险信号。"
+            pieces = [f"这段输入目前被归入“{category}”层面，当前为{level}。"]
+            if detail_text:
+                pieces.append(f"从已有证据看，{detail_text}。")
+            else:
+                pieces.append(
+                    "它与论文中的教育家人格结构已有初步呼应，但还可以补充更具体的教学情境或价值判断。"
+                )
+            return "".join(pieces)
+
         return base_fallback or rule_reason
 
-    def _trim_text(self, text: str, limit: int = 16) -> str:
+    def _format_dimension_summary(self, dimension_scores: list[DimensionScore]) -> str:
+        if not dimension_scores:
+            return ""
+
+        top_dimensions = sorted(dimension_scores, key=lambda item: item.score, reverse=True)[:3]
+        return "三重人格得分分别为" + "、".join(
+            f"{item.name}{round(item.score * 100)}%" for item in top_dimensions
+        )
+
+    def _format_indicator_summary(
+        self,
+        indicator_scores: list[IndicatorScore],
+        *,
+        limit: int,
+    ) -> str:
+        if not indicator_scores:
+            return ""
+
+        top_indicators = sorted(indicator_scores, key=lambda item: item.score, reverse=True)[:limit]
+        return "最突出的品质/行为是" + "、".join(
+            f"{item.name}{round(item.score * 100)}%" for item in top_indicators
+        )
+
+    def _format_metric_summary(self, indicator_scores: list[IndicatorScore]) -> str:
+        if not indicator_scores:
+            return ""
+
+        top_indicator = max(indicator_scores, key=lambda item: item.score, default=None)
+        if top_indicator is None:
+            return ""
+
+        metric_map = {metric.id: metric for metric in top_indicator.metric_results}
+        ordered_ids = (
+            "keyword_hits",
+            "cue_diversity",
+            "segment_coverage",
+            "density_per_1000_chars",
+        )
+        parts = []
+        for metric_id in ordered_ids:
+            metric = metric_map.get(metric_id)
+            if metric is None:
+                continue
+            value = int(metric.value) if float(metric.value).is_integer() else round(metric.value, 2)
+            parts.append(f"{metric.name}{value}{metric.unit}")
+
+        if not parts:
+            return ""
+
+        return f"其中“{top_indicator.name}”的量化参考为" + "、".join(parts)
+
+    def _trim_text(self, text: str, limit: int = 20) -> str:
         cleaned = " ".join(text.split())
         if not cleaned:
             return ""
@@ -333,9 +316,47 @@ class AnalysisService:
             return cleaned
         return f"{cleaned[:limit]}..."
 
-    def _pick_higher_level(self, left: str, right: str) -> str:
-        order = {"正常": 0, "低": 1, "中": 2, "高": 3}
-        return left if order.get(left, 0) >= order.get(right, 0) else right
+    def _looks_like_prompt_leak(self, text: str) -> bool:
+        leak_signals = (
+            "请使用系统",
+            "命名规则",
+            "请只输出",
+            "输出最终",
+            "system",
+            "prompt",
+        )
+        return any(signal in text.lower() for signal in leak_signals)
+
+    def _build_segment_previews(
+        self,
+        *,
+        text: str,
+        reference_library,
+        enabled: bool,
+    ):
+        if not enabled:
+            return []
+
+        segments = split_text_for_analysis(text)
+        previews = []
+        for index, segment in enumerate(segments, start=1):
+            score_result = self.scoring_service.score_text(
+                text=segment,
+                reference_dimensions=reference_library.dimensions,
+            )
+            previews.append(
+                {
+                    "index": index,
+                    "excerpt": self._trim_text(segment, limit=90),
+                    "category": score_result.category,
+                    "level": score_result.level,
+                    "score": score_result.score,
+                    "keywords": score_result.matched_keywords[:5],
+                }
+            )
+
+        previews.sort(key=lambda item: item["score"], reverse=True)
+        return previews[:8]
 
     def _build_summary(self, results: list[AnalysisResult]) -> BatchAnalysisSummary:
         category_counter = Counter(result.category for result in results)
@@ -347,6 +368,7 @@ class AnalysisService:
             for keyword, count in keyword_counter.most_common(10)
         ]
 
+        avg_score = round(sum(result.score for result in results) / len(results), 2) if results else 0.0
         return BatchAnalysisSummary(
             total=len(results),
             category_distribution=dict(category_counter),
@@ -355,4 +377,5 @@ class AnalysisService:
             wordcloud_keywords=extract_wordcloud_keywords([result.text for result in results]),
             attention_count=sum(1 for result in results if result.needs_attention),
             high_risk_texts=[result for result in results if result.needs_attention][:10],
+            avg_score=avg_score,
         )

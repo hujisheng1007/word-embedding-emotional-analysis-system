@@ -14,18 +14,21 @@ from app.schemas.analysis import (
     PublicSource,
     PublicSourceFetchRequest,
     PublicSourceFetchResponse,
+    ReferenceLibraryResponse,
     SystemStatusResponse,
 )
 from app.services.analysis_service import AnalysisService
 from app.services.dataset_service import DatasetService
 from app.services.foundation_profile_service import get_foundation_profile_service
 from app.services.public_data_service import PublicDataService
+from app.services.reference_library_service import get_reference_library_service
 
 router = APIRouter(tags=["analysis"])
 service = AnalysisService()
 public_data_service = PublicDataService(service)
 dataset_service = DatasetService()
 foundation_profile_service = get_foundation_profile_service()
+reference_library_service = get_reference_library_service()
 
 
 @router.post("/analyze", response_model=AnalysisResult)
@@ -62,6 +65,11 @@ def get_dataset(dataset_id: str) -> BatchAnalysisResponse:
         return dataset_service.get_dataset_analysis(dataset_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/reference-library", response_model=ReferenceLibraryResponse)
+def get_reference_library() -> ReferenceLibraryResponse:
+    return reference_library_service.get_reference_library()
 
 
 @router.get("/foundation-model/profiles", response_model=list[FoundationModelProfile])

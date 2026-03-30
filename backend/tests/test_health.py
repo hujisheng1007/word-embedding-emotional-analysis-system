@@ -1,12 +1,27 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes.analysis import dataset_service, foundation_profile_service, public_data_service
-from app.engines.small_model.engine import SmallModelPrediction
+from app.api.routes.analysis import (
+    dataset_service,
+    foundation_profile_service,
+    public_data_service,
+    reference_library_service,
+    service as route_service,
+)
 from app.main import app
 from app.services.analysis_service import AnalysisService
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def stub_route_explanations(monkeypatch):
+    monkeypatch.setattr(
+        route_service,
+        "_generate_explanation",
+        lambda **kwargs: kwargs["fallback"],
+    )
 
 
 def test_health() -> None:
@@ -18,15 +33,15 @@ def test_health() -> None:
 def test_single_analysis() -> None:
     response = client.post(
         "/api/analyze",
-        json={"text": "我感觉自己不想活了，什么都没有意义。", "mode": "hybrid"},
+        json={"text": "我会把课堂反馈和项目实践都放进教学设计里，让学生在真实任务中成长。"},
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["category"] == "心理风险"
-    assert payload["level"] == "高"
+    assert payload["category"] == "职业人格"
+    assert payload["level"] in {"初显现", "中显现", "高显现"}
     assert payload["needs_attention"] is True
-    assert "不想活了" in payload["keywords"]
+    assert "课堂" in payload["keywords"]
     assert len(payload["score_breakdown"]) >= 2
 
 
@@ -35,21 +50,20 @@ def test_batch_analysis() -> None:
         "/api/analyze/batch",
         json={
             "texts": [
-                "我感觉自己不想活了，什么都没有意义。",
-                "这个学校处理投诉的方式太离谱了，我准备发帖曝光。",
-                "今天课堂氛围不错，整体比较顺利。",
-            ],
-            "mode": "hybrid",
+                "教育的本质若要用一个字概括，就是爱，教师的眼中才能真正看见学生。",
+                "未来教育最大的挑战，是在人工智能进入课堂后依然保留教育的人文温度。",
+                "今天整理了一下教学资料。",
+            ]
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["summary"]["total"] == 3
-    assert payload["summary"]["attention_count"] == 2
-    assert payload["summary"]["category_distribution"]["心理风险"] == 1
-    assert payload["summary"]["category_distribution"]["舆情风险"] == 1
+    assert len(payload["summary"]["category_distribution"]) >= 1
+    assert len(payload["summary"]["level_distribution"]) >= 1
     assert "wordcloud_keywords" in payload["summary"]
+    assert "avg_score" in payload["summary"]
     assert len(payload["results"]) == 3
 
 
@@ -76,19 +90,29 @@ def test_generate_targeted_explanation(monkeypatch) -> None:
     response = client.post(
         "/api/explanations/generate",
         json={
-            "text": "求助一下学长学姐，西安军械修理厂怎么样。",
-            "category": "正常文本",
-            "level": "正常",
-            "keywords": [],
-            "rule_reason": "未命中明显风险规则。",
-            "fallback": "当前文本整体为日常表达。",
+            "text": "我想在课堂上多给学生留一点讨论和反馈的空间。",
+            "category": "职业人格",
+            "level": "中显现",
+            "keywords": ["课堂", "学生", "反馈"],
+            "rule_reason": "文本最集中地体现了“职业人格”。",
+            "fallback": "",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert "解释" not in payload["explanation"]
-    assert "西安军械修理厂" in payload["explanation"] or "日常求助" in payload["explanation"]
+    assert "职业人格" in payload["explanation"]
+
+
+def test_list_reference_library() -> None:
+    response = client.get("/api/reference-library")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_name"] == "教育家三重人格底库"
+    assert len(payload["dimensions"]) == 3
+    assert payload["dimensions"][0]["sample_quotes"]
 
 
 def test_list_foundation_model_profiles() -> None:
@@ -101,11 +125,7 @@ def test_list_foundation_model_profiles() -> None:
 
 
 def test_activate_foundation_model_profile(monkeypatch) -> None:
-    monkeypatch.setattr(
-        foundation_profile_service,
-        "activate_profile",
-        lambda profile_id: None,
-    )
+    monkeypatch.setattr(foundation_profile_service, "activate_profile", lambda profile_id: None)
     monkeypatch.setattr(
         foundation_profile_service,
         "get_runtime_config",
@@ -140,7 +160,6 @@ def test_list_public_sources() -> None:
     assert len(payload) >= 1
     assert "id" in payload[0]
     assert "feed_url" in payload[0]
-    assert any(item["id"] == "xidian-tieba" for item in payload)
 
 
 def test_fetch_public_source(monkeypatch) -> None:
@@ -153,37 +172,46 @@ def test_fetch_public_source(monkeypatch) -> None:
                 "feed_url": "https://example.com/feed.xml",
             },
             "fetched_count": 2,
-            "texts": ["学校投诉处理太慢了，我要曝光。", "我感觉自己不想活了。"],
+            "texts": ["我想让课堂更重视反馈。", "未来教育需要更多创新尝试。"],
             "analysis": {
                 "summary": {
                     "total": 2,
-                    "category_distribution": {"舆情风险": 1, "心理风险": 1},
-                    "level_distribution": {"中": 1, "高": 1},
-                    "top_keywords": [{"keyword": "学校", "count": 1}],
-                    "wordcloud_keywords": [{"keyword": "学校", "count": 1}],
+                    "category_distribution": {"职业人格": 1, "自然人格": 1},
+                    "level_distribution": {"中显现": 1, "高显现": 1},
+                    "top_keywords": [{"keyword": "课堂", "count": 1}],
+                    "wordcloud_keywords": [{"keyword": "课堂", "count": 1}],
                     "attention_count": 2,
                     "high_risk_texts": [],
+                    "avg_score": 0.72,
                 },
                 "results": [
                     {
-                        "text": "学校投诉处理太慢了，我要曝光。",
-                        "category": "舆情风险",
-                        "level": "中",
-                        "score": 0.76,
-                        "keywords": ["学校", "投诉", "曝光"],
+                        "text": "我想让课堂更重视反馈。",
+                        "category": "职业人格",
+                        "level": "中显现",
+                        "score": 0.66,
+                        "keywords": ["课堂", "反馈"],
                         "rule_reason": "测试规则说明",
                         "llm_explanation": "测试解释",
                         "needs_attention": True,
+                        "dominant_dimension_id": "professional_personality",
+                        "dimension_scores": [],
+                        "indicator_scores": [],
+                        "reference_quotes": [],
                     },
                     {
-                        "text": "我感觉自己不想活了。",
-                        "category": "心理风险",
-                        "level": "高",
-                        "score": 0.92,
-                        "keywords": ["不想活了"],
+                        "text": "未来教育需要更多创新尝试。",
+                        "category": "自然人格",
+                        "level": "高显现",
+                        "score": 0.79,
+                        "keywords": ["未来", "创新"],
                         "rule_reason": "测试规则说明",
                         "llm_explanation": "测试解释",
                         "needs_attention": True,
+                        "dominant_dimension_id": "natural_personality",
+                        "dimension_scores": [],
+                        "indicator_scores": [],
+                        "reference_quotes": [],
                     },
                 ],
             },
@@ -191,10 +219,7 @@ def test_fetch_public_source(monkeypatch) -> None:
 
     monkeypatch.setattr(public_data_service, "fetch_and_analyze", fake_fetch_and_analyze)
 
-    response = client.post(
-        "/api/public-sources/fetch",
-        json={"source_id": "xidian-tieba", "limit": 2},
-    )
+    response = client.post("/api/public-sources/fetch", json={"source_id": "xidian-tieba", "limit": 2})
 
     assert response.status_code == 200
     payload = response.json()
@@ -208,33 +233,42 @@ def test_get_default_dataset(monkeypatch) -> None:
         return {
             "summary": {
                 "total": 2,
-                "category_distribution": {"正常文本": 1, "一般负面": 1},
-                "level_distribution": {"正常": 1, "低": 1},
-                "top_keywords": [{"keyword": "难受", "count": 1}],
+                "category_distribution": {"职业人格": 1, "道德人格": 1},
+                "level_distribution": {"中显现": 1, "高显现": 1},
+                "top_keywords": [{"keyword": "学生", "count": 1}],
                 "wordcloud_keywords": [{"keyword": "课堂", "count": 2}],
-                "attention_count": 0,
+                "attention_count": 2,
                 "high_risk_texts": [],
+                "avg_score": 0.71,
             },
             "results": [
                 {
-                    "text": "今天备课顺利。",
-                    "category": "正常文本",
-                    "level": "正常",
-                    "score": 0.08,
-                    "keywords": [],
-                    "rule_reason": "未命中明显风险规则。",
-                    "llm_explanation": "当前文本整体为日常表达。",
-                    "needs_attention": False,
+                    "text": "我希望先理解学生，再设计课堂节奏。",
+                    "category": "职业人格",
+                    "level": "中显现",
+                    "score": 0.66,
+                    "keywords": ["学生", "理解", "课堂"],
+                    "rule_reason": "命中共情育人线索。",
+                    "llm_explanation": "文本与共情育人维度较接近。",
+                    "needs_attention": True,
+                    "dominant_dimension_id": "professional_personality",
+                    "dimension_scores": [],
+                    "indicator_scores": [],
+                    "reference_quotes": [],
                 },
                 {
-                    "text": "最近有点难受。",
-                    "category": "一般负面",
-                    "level": "低",
-                    "score": 0.43,
-                    "keywords": ["难受"],
-                    "rule_reason": "命中一般负面情绪词。",
-                    "llm_explanation": "文本带有一定消极情绪。",
-                    "needs_attention": False,
+                    "text": "未来教育要处理技术与温度的平衡。",
+                    "category": "道德人格",
+                    "level": "高显现",
+                    "score": 0.76,
+                    "keywords": ["未来", "技术"],
+                    "rule_reason": "命中创新引领线索。",
+                    "llm_explanation": "文本与创新引领维度较接近。",
+                    "needs_attention": True,
+                    "dominant_dimension_id": "moral_personality",
+                    "dimension_scores": [],
+                    "indicator_scores": [],
+                    "reference_quotes": [],
                 },
             ],
         }
@@ -247,7 +281,7 @@ def test_get_default_dataset(monkeypatch) -> None:
     payload = response.json()
     assert payload["summary"]["total"] == 2
     assert payload["summary"]["wordcloud_keywords"][0]["keyword"] == "课堂"
-    assert payload["results"][0]["category"] == "正常文本"
+    assert payload["results"][0]["category"] == "职业人格"
 
 
 def test_list_datasets(monkeypatch) -> None:
@@ -256,13 +290,13 @@ def test_list_datasets(monkeypatch) -> None:
         "list_datasets",
         lambda: [
             {
-                "id": "educator-interviews-analysis",
-                "name": "教师访谈分析结果",
+                "id": "educator-interviews-import",
+                "name": "教育家型教师访谈底库",
                 "description": "测试数据集",
-                "file_name": "educator_interviews_analysis.csv",
-                "data_kind": "analysis",
+                "file_name": "educator_interviews_import.csv",
+                "data_kind": "import",
                 "record_count": 669,
-                "attention_count": 1,
+                "attention_count": 120,
                 "updated_at": "2026-03-29 01:22",
                 "is_default": True,
             }
@@ -273,7 +307,7 @@ def test_list_datasets(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload[0]["id"] == "educator-interviews-analysis"
+    assert payload[0]["id"] == "educator-interviews-import"
     assert payload[0]["record_count"] == 669
 
 
@@ -283,23 +317,28 @@ def test_get_dataset_by_id(monkeypatch) -> None:
         return {
             "summary": {
                 "total": 1,
-                "category_distribution": {"正常文本": 1},
-                "level_distribution": {"正常": 1},
+                "category_distribution": {"职业人格": 1},
+                "level_distribution": {"中显现": 1},
                 "top_keywords": [],
                 "wordcloud_keywords": [{"keyword": "课堂", "count": 1}],
-                "attention_count": 0,
+                "attention_count": 1,
                 "high_risk_texts": [],
+                "avg_score": 0.63,
             },
             "results": [
                 {
-                    "text": "今天课堂状态不错。",
-                    "category": "正常文本",
-                    "level": "正常",
-                    "score": 0.06,
-                    "keywords": [],
-                    "rule_reason": "未命中明显风险规则。",
-                    "llm_explanation": "文本整体表达较为日常平稳，当前未发现明显风险信号。",
-                    "needs_attention": False,
+                    "text": "今天课堂状态不错，也有及时反馈。",
+                    "category": "职业人格",
+                    "level": "中显现",
+                    "score": 0.63,
+                    "keywords": ["课堂", "反馈"],
+                    "rule_reason": "命中实践教学线索。",
+                    "llm_explanation": "文本整体更接近实践教学维度。",
+                    "needs_attention": True,
+                    "dominant_dimension_id": "professional_personality",
+                    "dimension_scores": [],
+                    "indicator_scores": [],
+                    "reference_quotes": [],
                 }
             ],
         }
@@ -311,68 +350,26 @@ def test_get_dataset_by_id(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["summary"]["total"] == 1
-    assert payload["results"][0]["text"] == "今天课堂状态不错。"
+    assert payload["results"][0]["text"] == "今天课堂状态不错，也有及时反馈。"
 
 
-def test_analysis_service_can_use_small_model_and_llm() -> None:
-    class FakeSmallModel:
-        def predict(self, text: str) -> SmallModelPrediction | None:
-            return SmallModelPrediction(
-                category="舆情风险",
-                level="中",
-                score=0.81,
-                reason="小模型判断文本含有公开扩散倾向。",
-            )
-
+def test_analysis_service_can_use_llm() -> None:
     class FakeLLM:
         def generate_explanation(self, **kwargs) -> str | None:
             return "这是来自大模型的解释。"
 
     class FakeFoundationModel:
-        def predict(self, text: str):
-            return None
-
         def generate_explanation(self, **kwargs) -> None:
             return None
 
     service = AnalysisService(
-        small_model_engine=FakeSmallModel(),
         foundation_model_engine=FakeFoundationModel(),
         llm_engine=FakeLLM(),
     )
 
     result = service.analyze_text(
-        payload=type("Payload", (), {"text": "这个学校处理投诉太离谱了，我准备曝光。"})()
+        payload=type("Payload", (), {"text": "我更想先听懂学生为什么沉默，再决定怎么推进课堂。"})()
     )
 
-    assert result.category == "舆情风险"
-    assert result.level in {"中", "高"}
+    assert result.category == "职业人格"
     assert result.llm_explanation == "这是来自大模型的解释。"
-
-
-def test_analysis_service_can_use_foundation_model() -> None:
-    class FakeFoundationModel:
-        def predict(self, text: str):
-            return type(
-                "Prediction",
-                (),
-                {
-                    "category": "一般负面",
-                    "level": "低",
-                    "score": 0.61,
-                    "reason": "更强模型判断文本主要体现压力和负面情绪。",
-                },
-            )()
-
-        def generate_explanation(self, **kwargs) -> str:
-            return "该文本主要体现出较明显的压力和负面感受，建议结合后续表述持续关注。"
-
-    service = AnalysisService(foundation_model_engine=FakeFoundationModel())
-
-    result = service.analyze_text(
-        payload=type("Payload", (), {"text": "这段时间工作压力很大，我有点难受。"})()
-    )
-
-    assert result.category == "一般负面"
-    assert result.level == "低"
-    assert "大模型参考" in result.rule_reason

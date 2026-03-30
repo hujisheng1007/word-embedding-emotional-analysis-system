@@ -8,12 +8,13 @@ import {
   fetchPublicSource,
   getDataset,
   getDefaultDataset,
+  getReferenceLibrary,
   getSystemStatus,
   listDatasets,
   listFoundationModelProfiles,
   listPublicSources
 } from "../api/analysis";
-import { dashboardMockData } from "../constants/mock";
+import { dashboardMockData, referenceLibraryMockData } from "../constants/mock";
 import type {
   AnalysisResult,
   BatchAnalysisResponse,
@@ -21,6 +22,7 @@ import type {
   FoundationModelProfile,
   ImportSummary,
   PublicSource,
+  ReferenceLibraryResponse,
   SystemStatusResponse
 } from "../types/analysis";
 import { extractTextsFromFile } from "../utils/fileParser";
@@ -30,8 +32,9 @@ const ALL_OPTION = "全部";
 
 export const useDashboardStore = defineStore("dashboard", () => {
   const batchData = ref<BatchAnalysisResponse>(dashboardMockData);
+  const referenceLibrary = ref<ReferenceLibraryResponse>(referenceLibraryMockData);
   const quickAnalysis = ref<AnalysisResult | null>(null);
-  const selectedResult = ref<AnalysisResult | null>(null);
+  const selectedResult = ref<AnalysisResult | null>(dashboardMockData.results[0] ?? null);
   const loading = ref(false);
   const datasetLoading = ref(false);
   const publicLoading = ref(false);
@@ -43,7 +46,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
   const attentionOnly = ref(false);
   const importFilename = ref("");
   const importSummary = ref<ImportSummary | null>(null);
-  const statusMessage = ref("当前展示默认演示数据。");
+  const statusMessage = ref("当前展示的是按论文重构后的教育家三重人格演示数据。");
   const publicSources = ref<PublicSource[]>([]);
   const selectedPublicSourceId = ref("");
   const foundationProfiles = ref<FoundationModelProfile[]>([]);
@@ -68,7 +71,8 @@ export const useDashboardStore = defineStore("dashboard", () => {
       const matchesSearch =
         !keyword ||
         item.text.includes(keyword) ||
-        item.keywords.some((current) => current.includes(keyword));
+        item.keywords.some((current) => current.includes(keyword)) ||
+        item.category.includes(keyword);
       const matchesCategory =
         categoryFilter.value === ALL_OPTION || item.category === categoryFilter.value;
       const matchesLevel = levelFilter.value === ALL_OPTION || item.level === levelFilter.value;
@@ -77,7 +81,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
     })
   );
 
-  const attentionItems = computed(() =>
+  const highlightedResults = computed(() =>
     batchData.value.results.filter((item) => item.needs_attention)
   );
 
@@ -91,12 +95,21 @@ export const useDashboardStore = defineStore("dashboard", () => {
 
   async function bootstrap(): Promise<void> {
     await Promise.all([
+      loadReferenceLibrary(),
       loadDatasetCatalog(),
       loadPublicSources(),
       loadSystemStatus(),
       loadFoundationProfiles()
     ]);
     await loadDashboardData();
+  }
+
+  async function loadReferenceLibrary(): Promise<void> {
+    try {
+      referenceLibrary.value = await getReferenceLibrary();
+    } catch {
+      referenceLibrary.value = referenceLibraryMockData;
+    }
   }
 
   async function loadDatasetCatalog(): Promise<void> {
@@ -120,15 +133,16 @@ export const useDashboardStore = defineStore("dashboard", () => {
         const defaultDataset = datasets.value.find((item) => item.is_default);
         selectedDatasetId.value = defaultDataset?.id ?? "";
       }
-      statusMessage.value = "已加载默认校园领域数据集，当前首页展示的是整理后的教师访谈样本。";
+      statusMessage.value =
+        "已载入你提供的访谈底库，并按论文的三重人格结构完成首轮分析。";
       importFilename.value = "";
       importSummary.value = null;
       selectedResult.value =
         batchData.value.summary.high_risk_texts[0] ?? batchData.value.results[0] ?? null;
     } catch {
-      batchData.value = analyzeBatchFallback(dashboardMockData.results.map((item) => item.text));
+      batchData.value = dashboardMockData;
       connectionMode.value = "mock";
-      statusMessage.value = "默认数据集加载失败，当前已回退到本地演示数据。";
+      statusMessage.value = "后端暂未连通，当前使用本地三重人格演示数据。";
       selectedResult.value =
         batchData.value.summary.high_risk_texts[0] ?? batchData.value.results[0] ?? null;
     } finally {
@@ -138,7 +152,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
 
   async function loadSelectedDataset(): Promise<void> {
     if (!selectedDatasetId.value) {
-      statusMessage.value = "请先选择一个已整理数据集。";
+      statusMessage.value = "请先选择一个数据集。";
       return;
     }
 
@@ -199,8 +213,8 @@ export const useDashboardStore = defineStore("dashboard", () => {
         (item) => item.id === selectedFoundationProfileId.value
       );
       statusMessage.value = profile
-        ? `已切换强模型档案：${profile.label}。`
-        : "已切换强模型档案。";
+        ? `已切换解释增强档案：${profile.label}。`
+        : "已切换解释增强档案。";
     } catch (error) {
       statusMessage.value =
         error instanceof Error ? `强模型切换失败：${error.message}` : "强模型切换失败，请稍后重试。";
@@ -213,8 +227,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
     try {
       publicSources.value = await listPublicSources();
       if (!selectedPublicSourceId.value && publicSources.value.length > 0) {
-        const preferredSource = publicSources.value.find((item) => item.id === "xidian-tieba");
-        selectedPublicSourceId.value = preferredSource?.id ?? publicSources.value[0].id;
+        selectedPublicSourceId.value = publicSources.value[0].id;
       }
     } catch {
       publicSources.value = [];
@@ -223,7 +236,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
 
   async function fetchSelectedPublicSource(): Promise<void> {
     if (!selectedPublicSourceId.value) {
-      statusMessage.value = "当前没有可用的公开数据源。";
+      statusMessage.value = "当前没有可用的在线文本源。";
       return;
     }
 
@@ -237,15 +250,15 @@ export const useDashboardStore = defineStore("dashboard", () => {
       selectedResult.value =
         payload.analysis.summary.high_risk_texts[0] ?? payload.analysis.results[0] ?? null;
       connectionMode.value = "api";
-      statusMessage.value = `已从公开数据源“${payload.source.name}”获取 ${payload.fetched_count} 条文本并完成分析。`;
+      statusMessage.value = `已从“${payload.source.name}”抓取 ${payload.fetched_count} 条在线文本，并完成底库映射分析。`;
       importFilename.value = "";
       importSummary.value = null;
       resetFilters();
     } catch (error) {
       statusMessage.value =
         error instanceof Error
-          ? `公开数据获取失败：${error.message}`
-          : "公开数据获取失败，请稍后重试。";
+          ? `在线文本获取失败：${error.message}`
+          : "在线文本获取失败，请稍后重试。";
     } finally {
       publicLoading.value = false;
     }
@@ -261,11 +274,11 @@ export const useDashboardStore = defineStore("dashboard", () => {
     try {
       quickAnalysis.value = await analyzeText({ text });
       connectionMode.value = "api";
-      statusMessage.value = "单条分析已通过后端接口完成。";
+      statusMessage.value = "单条在线文本已完成三重人格映射分析。";
     } catch {
       quickAnalysis.value = analyzeTextFallback(text);
       connectionMode.value = "mock";
-      statusMessage.value = "后端未连接，单条分析已回退到本地规则演示。";
+      statusMessage.value = "后端未连通，当前使用本地三重人格规则完成单条分析。";
     } finally {
       selectedResult.value = quickAnalysis.value;
       loading.value = false;
@@ -286,13 +299,11 @@ export const useDashboardStore = defineStore("dashboard", () => {
       try {
         batchData.value = await analyzeBatch({ texts });
         connectionMode.value = "api";
-        statusMessage.value =
-          `已导入 ${file.name}，共读取 ${summary.total_entries} 条，保留 ${summary.extracted_count} 条有效文本。`;
+        statusMessage.value = `已导入 ${file.name}，共保留 ${summary.extracted_count} 条有效文本并完成映射分析。`;
       } catch {
         batchData.value = analyzeBatchFallback(texts);
         connectionMode.value = "mock";
-        statusMessage.value =
-          `后端未连接，已使用本地规则分析导入文件：${file.name}，保留 ${summary.extracted_count} 条文本。`;
+        statusMessage.value = `后端未连通，已使用本地规则分析导入文件 ${file.name}。`;
       }
 
       importFilename.value = file.name;
@@ -308,10 +319,6 @@ export const useDashboardStore = defineStore("dashboard", () => {
     selectedResult.value = result;
   }
 
-  function closeResultDrawer(): void {
-    selectedResult.value = null;
-  }
-
   function resetFilters(): void {
     searchText.value = "";
     categoryFilter.value = ALL_OPTION;
@@ -322,13 +329,11 @@ export const useDashboardStore = defineStore("dashboard", () => {
   return {
     activeFoundationProfile,
     activateSelectedFoundationProfile,
-    attentionItems,
     attentionOnly,
     batchData,
     bootstrap,
     categories,
     categoryFilter,
-    closeResultDrawer,
     connectionMode,
     datasetLoading,
     datasets,
@@ -336,6 +341,7 @@ export const useDashboardStore = defineStore("dashboard", () => {
     filteredResults,
     foundationProfiles,
     foundationSwitching,
+    highlightedResults,
     importFilename,
     importSummary,
     importTextFile,
@@ -345,12 +351,14 @@ export const useDashboardStore = defineStore("dashboard", () => {
     loadDatasetCatalog,
     loadFoundationProfiles,
     loadPublicSources,
+    loadReferenceLibrary,
     loadSelectedDataset,
     loadSystemStatus,
     loading,
     publicLoading,
     publicSources,
     quickAnalysis,
+    referenceLibrary,
     resetFilters,
     runQuickAnalysis,
     searchText,

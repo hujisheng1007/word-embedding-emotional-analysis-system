@@ -2,7 +2,7 @@
   <el-card class="chart-card">
     <template #header>
       <div class="panel-header">
-        <span>高频表达词云</span>
+        <span>人格线索词云</span>
       </div>
     </template>
     <div ref="containerRef" class="chart-body"></div>
@@ -24,7 +24,7 @@ const containerRef = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 
 function createFallbackData() {
-  return [{ name: "暂无词云数据", value: 1, textStyle: { color: "#7d93ab" } }];
+  return [{ name: "暂无词云数据", value: 1, textStyle: { color: "#7b6b58" } }];
 }
 
 function renderChart(): void {
@@ -52,10 +52,10 @@ function renderChart(): void {
         gridSize: 4,
         drawOutOfBound: false,
         textStyle: {
-          fontFamily: "Microsoft YaHei, Segoe UI, sans-serif",
+          fontFamily: "Noto Serif SC, Source Han Serif SC, Microsoft YaHei, serif",
           fontWeight: 700,
           color: () => {
-            const colors = ["#5cc8ff", "#00e4b8", "#ffb34d", "#ff6f91", "#7a8cff", "#39d98a"];
+            const colors = ["#207567", "#d59c3e", "#c56d42", "#6f8a5b", "#6377a6", "#8b6532"];
             return colors[Math.floor(Math.random() * colors.length)];
           }
         },

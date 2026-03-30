@@ -31,7 +31,7 @@ PUBLIC_SOURCES: tuple[PublicSourceDefinition, ...] = (
     PublicSourceDefinition(
         id="xidian-tieba",
         name="西安电子科技大学吧",
-        description="点击后按需从西安电子科技大学吧随机抓取一批主题帖标题，适合贴近中文大学生互联网语境的演示。",
+        description="按需抓取一批高校社区主题帖标题，适合演示外部在线文本如何映射到底层教育家精神维度。",
         feed_url="https://tieba.baidu.com/f?kw=%E8%A5%BF%E5%AE%89%E7%94%B5%E5%AD%90%E7%A7%91%E6%8A%80%E5%A4%A7%E5%AD%A6",
         source_type="tieba_forum",
         forum_name="西安电子科技大学",
@@ -39,13 +39,13 @@ PUBLIC_SOURCES: tuple[PublicSourceDefinition, ...] = (
     PublicSourceDefinition(
         id="v2ex-hot",
         name="V2EX 热门主题",
-        description="获取公开社区 V2EX 首页 RSS 标题，用于展示通用互联网公开文本接入。",
+        description="获取公开社区 V2EX 首页 RSS 标题，用于展示通用在线文本接入后的底库映射效果。",
         feed_url="https://www.v2ex.com/index.xml",
     ),
     PublicSourceDefinition(
         id="hn-frontpage",
         name="Hacker News Front Page",
-        description="获取 Hacker News 首页 RSS 标题，演示英文公开文本的实时分析流程。",
+        description="获取 Hacker News 首页 RSS 标题，演示英文公开文本接入后的映射流程。",
         feed_url="https://news.ycombinator.com/rss",
     ),
 )

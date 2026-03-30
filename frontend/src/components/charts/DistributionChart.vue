@@ -29,7 +29,7 @@ function renderChart(): void {
   chart ??= echarts.init(containerRef.value);
   chart.setOption({
     backgroundColor: "transparent",
-    color: ["#5cc8ff", "#00e4b8", "#ffb34d", "#ff6f91", "#7a8cff"],
+    color: ["#207567", "#d59c3e", "#c56d42", "#6f8a5b", "#6377a6"],
     tooltip: {
       trigger: "item"
     },
@@ -39,11 +39,11 @@ function renderChart(): void {
         radius: ["45%", "70%"],
         itemStyle: {
           borderRadius: 12,
-          borderColor: "#091425",
+          borderColor: "#fff8ef",
           borderWidth: 3
         },
         label: {
-          color: "#d7e5f5"
+          color: "#44525e"
         },
         data: Object.entries(props.data).map(([name, value]) => ({ name, value }))
       }
