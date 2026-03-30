@@ -12,8 +12,62 @@ class ScoreFactor(BaseModel):
     description: str
 
 
+class MetricBenchmark(BaseModel):
+    id: str
+    name: str
+    unit: str
+    description: str
+    low: float
+    medium: float
+    high: float
+
+
+class IndicatorMetricResult(BaseModel):
+    id: str
+    name: str
+    unit: str
+    value: float
+    description: str
+    low: float
+    medium: float
+    high: float
+    band: str
+
+
+class DimensionScore(BaseModel):
+    id: str
+    name: str
+    score: float
+    evidence_count: int
+    matched_keywords: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class IndicatorScore(BaseModel):
+    id: str
+    name: str
+    group_id: str
+    group_name: str
+    aspect_type: str
+    score: float
+    evidence_count: int
+    matched_keywords: list[str] = Field(default_factory=list)
+    description: str = ""
+    metric_results: list[IndicatorMetricResult] = Field(default_factory=list)
+
+
+class TextSegmentPreview(BaseModel):
+    index: int
+    excerpt: str
+    category: str
+    level: str
+    score: float
+    keywords: list[str] = Field(default_factory=list)
+
+
 class AnalysisResult(BaseModel):
     text: str
+    text_length: int = 0
     category: str
     level: str
     score: float
@@ -22,6 +76,13 @@ class AnalysisResult(BaseModel):
     llm_explanation: str
     needs_attention: bool
     score_breakdown: list[ScoreFactor] = Field(default_factory=list)
+    dominant_dimension_id: str = ""
+    dimension_scores: list[DimensionScore] = Field(default_factory=list)
+    indicator_scores: list[IndicatorScore] = Field(default_factory=list)
+    reference_quotes: list[str] = Field(default_factory=list)
+    is_long_text: bool = False
+    segment_count: int = 0
+    segment_previews: list[TextSegmentPreview] = Field(default_factory=list)
 
 
 class ExplanationRequest(BaseModel):
@@ -55,6 +116,7 @@ class BatchAnalysisSummary(BaseModel):
     wordcloud_keywords: list[KeywordCount]
     attention_count: int
     high_risk_texts: list[AnalysisResult]
+    avg_score: float = 0.0
 
 
 class BatchAnalysisResponse(BaseModel):
@@ -68,10 +130,49 @@ class DatasetOption(BaseModel):
     description: str
     file_name: str
     data_kind: str
+    domain: str = "general"
+    source: str = "database"
     record_count: int
     attention_count: int
     updated_at: str
     is_default: bool
+
+
+class ReferenceQuote(BaseModel):
+    respondent_name: str
+    question_id: str
+    question: str
+    text: str
+
+
+class ReferenceIndicator(BaseModel):
+    id: str
+    name: str
+    aspect_type: str
+    description: str
+    question_ids: list[str]
+    keyword_cues: list[str]
+    metric_benchmarks: list[MetricBenchmark]
+
+
+class ReferenceDimension(BaseModel):
+    id: str
+    name: str
+    description: str
+    question_ids: list[str]
+    keyword_cues: list[str]
+    excerpt_count: int
+    indicators: list[ReferenceIndicator] = Field(default_factory=list)
+    highlight_terms: list[KeywordCount]
+    sample_quotes: list[ReferenceQuote]
+
+
+class ReferenceLibraryResponse(BaseModel):
+    source_name: str
+    source_file: str
+    total_excerpts: int
+    total_respondents: int
+    dimensions: list[ReferenceDimension]
 
 
 class PublicSource(BaseModel):

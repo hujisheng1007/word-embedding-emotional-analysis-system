@@ -35,6 +35,8 @@ def _get_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
+    database_enabled: bool
+    database_url: str
     small_model_enabled: bool
     small_model_endpoint: str
     small_model_timeout: float
@@ -57,7 +59,12 @@ class Settings:
 
 def get_settings() -> Settings:
     _load_dotenv()
+    project_root = Path(__file__).resolve().parents[3]
+    default_sqlite_path = (project_root / "data" / "app.db").resolve()
+    default_sqlite_url = f"sqlite:///{default_sqlite_path.as_posix()}"
     return Settings(
+        database_enabled=_get_bool("DATABASE_ENABLED", True),
+        database_url=os.getenv("DATABASE_URL", default_sqlite_url),
         small_model_enabled=_get_bool("SMALL_MODEL_ENABLED", False),
         small_model_endpoint=os.getenv("SMALL_MODEL_ENDPOINT", "http://127.0.0.1:9001/predict"),
         small_model_timeout=_get_float("SMALL_MODEL_TIMEOUT", 10.0),

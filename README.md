@@ -83,3 +83,6 @@ start_dev.bat
 - [start_llm_service.bat](d:/大创/start_llm_service.bat)
 
 如果 `backend/.env` 中设置了 `LLM_ENABLED=true`，那么运行 [start_dev.ps1](d:/大创/start_dev.ps1) 时会自动一并拉起本地 Llama 服务。
+
+## Deployment Guide
+- New machine setup (database-first): [docs/deployment/new_machine_setup.md](docs/deployment/new_machine_setup.md)
