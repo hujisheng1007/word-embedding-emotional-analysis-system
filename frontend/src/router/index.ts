@@ -9,6 +9,11 @@ const router = createRouter({
       path: "/",
       name: "dashboard",
       component: DashboardView
+    },
+    {
+      path: "/resources",
+      name: "resources",
+      component: () => import("../views/resources/ResourceLibraryView.vue")
     }
   ]
 });

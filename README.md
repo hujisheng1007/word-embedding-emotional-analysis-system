@@ -1,6 +1,6 @@
-# 校园风险文本识别与可视化分析平台
+# 教育家人格智能分析系统 2.0
 
-这是基于需求文档搭建的第一版项目骨架，目标是尽快跑通一个适合答辩展示的 Web Demo。
+这是一个面向教育家研究的人格材料管理与分析系统。当前版本保留原有三重人格分析演示，并新增可追溯的研究资源库，用于统一登记书籍、访谈、论文、字幕和其他研究资料。
 
 ## 当前目录结构
 
@@ -8,6 +8,7 @@
 .
 ├─ frontend/                # Vue 3 + Vite 大屏前端
 ├─ backend/                 # FastAPI 后端与分析服务
+├─ alembic/                 # 数据库版本迁移
 ├─ data/                    # 原始数据、样例数据、处理后数据
 ├─ models/                  # 小模型与本地大模型目录占位
 ├─ scripts/                 # 数据处理、启动、导入脚本
@@ -17,7 +18,7 @@
 
 ## 项目总控文档
 
-- 实时规划与进度请查看 [docs/project_status.md](d:/大创/docs/project_status.md)
+- 实时规划与进度请查看 [docs/project_status.md](docs/project_status.md)
 
 ## 建议开发顺序
 
@@ -25,52 +26,155 @@
 2. 再把前端大屏页面和接口联调跑通。
 3. 最后补批量导入、真实数据样例接入和可视化细节。
 
-## 启动准备
+## Windows 首次部署
 
-### 后端
+先安装 Git、Python（建议 3.12）和 Node.js 20+（建议 LTS），确认 `git`、`py`、`node`、`npm` 可在 PowerShell 中使用。以下命令使用 Python Launcher 的 `py -3.12`；如果没有安装 Launcher，可改用对应 Python 的 `python` 命令。
 
-```powershell
-cd backend
-python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-### 前端
+首次克隆项目；已有本地仓库时进入现有目录，保留原有文件和配置：
 
 ```powershell
-cd frontend
-npm install
-npm run dev
+git clone https://github.com/hujisheng1007/word-embedding-emotional-analysis-system.git
+cd word-embedding-emotional-analysis-system
 ```
 
-## 一键启动
+在项目根目录创建后端环境并安装前后端依赖：
 
-在项目根目录可以直接使用：
+```powershell
+py -3.12 -m venv backend\.venv
+& .\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+Set-Location frontend
+npm.cmd ci
+Set-Location ..
+```
+
+首次启用研究资源库时执行数据库迁移。已有 `data/app.db` 时，先把它备份到项目目录之外，再运行：
+
+```powershell
+& .\backend\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+```
+
+迁移只新增资源库表和 `alembic_version`，不会重建原有 `corpus_datasets`、`corpus_records`。未执行迁移时原人格分析仍可启动，但研究资源库接口会返回明确的 503 初始化提示。
+
+已有可用的 `backend/.venv` 时无需重新创建。如果只有 `.env.example`，复制一份配置；已有 `backend/.env` 时不要覆盖：
+
+```powershell
+if (-not (Test-Path -LiteralPath backend\.env)) {
+    Copy-Item -LiteralPath backend\.env.example -Destination backend\.env
+}
+```
+
+启动前按下面的“数据库与环境配置”检查 `backend/.env`。
+
+### Windows 后续一键启动
+
+在项目根目录运行：
 
 ```powershell
 .\start_dev.ps1
 ```
 
-或者双击：
+也可以双击 `start_dev.bat`。如果 PowerShell 的执行策略阻止 `.ps1`，可以使用这个 `.bat` 入口。
 
-```text
-start_dev.bat
+现有 Windows 脚本保持原样，会分别打开前后端 PowerShell 窗口。看到服务启动完成后，打开 `http://127.0.0.1:5173`；后端健康检查为 `http://127.0.0.1:8000/health`。停止时在各服务窗口分别按 `Ctrl+C`。Windows 原脚本不自动打开浏览器；Vite 默认使用 5173，端口被占用时可能自动选择其他端口，因此启动前应保持 5173 和 8000 空闲。
+
+## macOS 首次部署
+
+先安装 Git、Python（建议 3.12）和 Node.js 20+（建议 LTS），在终端确认 `git --version`、`python3 --version`、`node --version` 和 `npm --version` 可用。下列命令中的 `python3` 应指向所需 Python；如果安装的命令名为 `python3.12`，可用它替换。
+
+首次克隆项目；已有仓库时进入现有目录：
+
+```bash
+git clone https://github.com/hujisheng1007/word-embedding-emotional-analysis-system.git
+cd word-embedding-emotional-analysis-system
 ```
 
-脚本会自动打开两个终端窗口：
+在项目根目录安装依赖：
 
-- 后端：`http://127.0.0.1:8000`
+```bash
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
+cd frontend
+npm ci
+cd ..
+```
+
+首次启用研究资源库时，先把已有 `data/app.db` 备份到项目目录之外，再执行：
+
+```bash
+backend/.venv/bin/python -m alembic -c alembic.ini upgrade head
+```
+
+该迁移尚未在真实 macOS 上执行验证；部署到 Mac 时应在备份后的数据库上运行并核对终端输出。
+
+Windows 与 macOS 的虚拟环境和 `node_modules` 不能直接共用。迁移源码后应在 macOS 上重新创建 `backend/.venv` 并安装依赖，不要拷贝 Windows 的 `.venv`。已有 macOS 可用环境时无需重新创建。
+
+仅在没有配置文件时复制模板：
+
+```bash
+if [ ! -f backend/.env ]; then
+  cp backend/.env.example backend/.env
+fi
+```
+
+启动前按下面的“数据库与环境配置”检查 `backend/.env`。
+
+### macOS 后续一键启动
+
+在项目根目录运行（无需设置执行权限）：
+
+```bash
+bash ./start_mac.sh
+```
+
+也可以先执行 `chmod +x start_mac.sh`，以后使用 `./start_mac.sh`。脚本根据自身位置寻找项目根目录，不依赖终端当前目录；从其他目录启动时，传入脚本所在的实际路径即可。
+
+脚本检测 `backend/.venv/bin/python` 和前端 Node.js 依赖，在同一个终端启动 FastAPI 与 Vite，并固定使用以下地址：
+
 - 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:8000`，健康检查：`http://127.0.0.1:8000/health`
 
-如果脚本提示缺少 `.venv` 或 `node_modules`，先按上面的“启动准备”安装依赖。
+两个服务就绪后，脚本自动打开默认浏览器。端口被占用、依赖缺失、服务提前退出，或在 120 秒内没有就绪时，脚本会报错并停止已启动的服务；Vite 不会自动换端口。若浏览器未能自动打开，可手动访问前端地址。
+
+保持启动终端开启，在该终端按 `Ctrl+C` 会停止前后端及其子进程。不要用强制关闭终端代替正常停止。脚本只启动前后端两个服务；可选大模型服务需要另行配置和启动。
+
+## 数据库与环境配置
+
+后端会自动读取 `backend/.env`，已有系统环境变量优先。模板中的 `DATABASE_URL` 带有原开发机的 Windows 绝对路径，复制后必须按本机情况修改，不能直接沿用。
+
+对于项目自带的本地 SQLite，可在 `backend/.env` 中使用以下配置（两个平台的启动脚本均从 `backend` 目录启动后端）：
+
+```dotenv
+DATABASE_ENABLED=true
+DATABASE_URL=sqlite:///../data/app.db
+```
+
+如果已有数据库，保留并核对原数据库连接 URL，不要替换为新的数据库地址。未设置 `DATABASE_URL` 时，后端默认使用项目 `data/app.db`。原分析模块可直接读取旧表；使用新增研究资源库前必须在项目根目录执行一次 `alembic upgrade head`。不要删除、重建或直接覆盖已有数据库。
+
+提示缺少虚拟环境、Python 包或 Node.js 依赖时，回到对应平台的首次部署步骤安装；前端已有依赖不完整时可在 `frontend` 中重新执行 `npm ci`。
+
+本次 macOS 启动方案可在 Windows 上检查脚本语法与模拟启动流程；未在真实 macOS 上验证运行结果。
+
+## 研究资源库
+
+启动前后端并完成数据库迁移后，访问 `http://127.0.0.1:5173/resources`。当前支持批量导入：
+
+- TXT：段落定位
+- CSV：行号定位，优先识别常见正文列
+- DOCX：段落定位
+- 文本型 PDF：页码定位；扫描型 PDF 会提示需要 OCR
+- XLSX：工作表与行号定位
+- JSON：JSON 路径定位
+- SRT / VTT：字幕时间戳定位
+
+导入默认采用 `copyright_status=unknown`、`access_level=restricted`，且不保存原文件和全文。只有在界面中明确确认有权保存全文后，后端才会解析和保留文件；保留文件写入 Git 忽略的 `backend/runtime/research_resources/`，文件路径由服务端生成。内容使用 SHA-256 精确去重，每次成功、重复或失败导入都有独立任务记录。
+
+当前公开仓库中的具名教师访谈材料包含姓名、性别、教龄、学科及逐段回答。确认知情同意、公开范围和二次研究授权并完成去标识化前，不要继续提交或推送这些全文及衍生数据。仓库中的传记 DOCX、理论论文 PDF 等材料也需要补齐逐项版权和来源记录。
 
 ## 模型接入
 
 后端已经预留了模型接入层，配置示例见：
 
-- [backend/.env.example](d:/大创/backend/.env.example)
+- [backend/.env.example](backend/.env.example)
 
 当前支持两类可选能力：
 
@@ -79,10 +183,11 @@ start_dev.bat
 
 当前项目还提供了一个独立本地 Llama 服务启动脚本：
 
-- [start_llm_service.ps1](d:/大创/start_llm_service.ps1)
-- [start_llm_service.bat](d:/大创/start_llm_service.bat)
+- [start_llm_service.ps1](start_llm_service.ps1)
+- [start_llm_service.bat](start_llm_service.bat)
 
-如果 `backend/.env` 中设置了 `LLM_ENABLED=true`，那么运行 [start_dev.ps1](d:/大创/start_dev.ps1) 时会自动一并拉起本地 Llama 服务。
+如果 `backend/.env` 中设置了 `LLM_ENABLED=true`，那么运行 Windows 的 [start_dev.ps1](start_dev.ps1) 时会自动一并拉起本地 Llama 服务。macOS 的 `start_mac.sh` 不启动该独立服务；在 macOS 上启用模型能力前，需要单独准备兼容的模型服务并配置对应地址和模型路径。
 
 ## Deployment Guide
+
 - New machine setup (database-first): [docs/deployment/new_machine_setup.md](docs/deployment/new_machine_setup.md)
