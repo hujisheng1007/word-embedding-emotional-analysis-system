@@ -3,6 +3,8 @@
     <header class="app-navigation">
       <RouterLink to="/">人格分析</RouterLink>
       <RouterLink to="/resources">研究资源库</RouterLink>
+      <RouterLink to="/collection">多源数据采集中心</RouterLink>
+      <RouterLink to="/knowledge">知识检索与评测</RouterLink>
     </header>
     <RouterView />
   </div>

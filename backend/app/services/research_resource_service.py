@@ -35,7 +35,7 @@ from app.services.resource_parsers import ALLOWED_EXTENSIONS, ResourceParseError
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-RESOURCE_TYPES = {"book", "interview", "paper", "video_subtitle", "webpage", "policy", "note", "other"}
+RESOURCE_TYPES = {"book", "interview", "paper", "journal", "video", "video_subtitle", "webpage", "policy", "note", "other"}
 COPYRIGHT_STATUSES = {"unknown", "authorized", "public_domain", "fair_use", "restricted"}
 ACCESS_LEVELS = {"restricted", "internal", "public"}
 REQUIRED_TABLES = {

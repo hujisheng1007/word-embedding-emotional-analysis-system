@@ -34,6 +34,10 @@ class CollectionJobCreate(BaseModel):
     contact_email: str = Field(default="", max_length=255)
 
 
+class SourceScheduleUpdate(BaseModel):
+    interval_minutes: int = Field(default=0, ge=0, le=10080)
+
+
 class CollectionJobView(BaseModel):
     id: str
     source_id: str
@@ -145,6 +149,11 @@ class SubtitleImportRequest(BaseModel):
     fetch_from_source: bool = False
     model_name: str = ""
     model_version: str = ""
+
+
+class TranscriptionJobCreate(BaseModel):
+    language: str = Field(default="zh", min_length=2, max_length=16)
+    model_name: str = Field(default="base", min_length=1, max_length=128)
 
 
 class ManualResourceCreate(BaseModel):

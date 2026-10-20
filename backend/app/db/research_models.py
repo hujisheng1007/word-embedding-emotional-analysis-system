@@ -356,3 +356,24 @@ class PersonalityEvidence(Base):
     locator_type: Mapped[str] = mapped_column(String(32), nullable=False)
     locator_value: Mapped[str] = mapped_column(String(255), nullable=False)
     review_status: Mapped[str] = mapped_column(String(32), index=True, default="pending", nullable=False)
+
+
+class KnowledgeQueryRun(Base):
+    __tablename__ = "knowledge_query_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    query: Mapped[str] = mapped_column(String(500), index=True, nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    top_k: Mapped[int] = mapped_column(Integer, nullable=False)
+    results_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RetrievalEvaluationRun(Base):
+    __tablename__ = "retrieval_evaluation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dataset_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

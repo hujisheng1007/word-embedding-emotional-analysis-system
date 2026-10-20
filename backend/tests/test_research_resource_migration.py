@@ -44,6 +44,13 @@ def test_migration_preserves_legacy_corpus_tables_and_rows(tmp_path: Path) -> No
         "resource_files",
         "resource_segments",
         "resource_import_jobs",
+        "collection_sources",
+        "collection_jobs",
+        "video_assets",
+        "transcripts",
+        "personality_evidence",
+        "knowledge_query_runs",
+        "retrieval_evaluation_runs",
     } <= tables
     with Session(engine) as session:
         assert session.scalar(select(CorpusRecord.text).where(CorpusRecord.dataset_id == "legacy")) == "preserve me"

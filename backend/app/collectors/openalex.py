@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import os
 from typing import Any
 
 from .base import Candidate, HttpAdapter
@@ -11,7 +12,14 @@ class OpenAlexWorksAdapter(HttpAdapter):
     endpoint = "https://api.openalex.org/works"
 
     def search(self, query: str, limit: int = 10, **options: Any) -> list[Candidate]:
-        params: dict[str, Any] = {"search": query, "per-page": min(max(limit, 1), 25)}
+        api_key = str(options.get("api_key") or os.getenv("OPENALEX_API_KEY", "")).strip()
+        if not api_key:
+            raise ValueError(
+                "OpenAlex 当前要求 API key。请在 backend/.env 设置 OPENALEX_API_KEY；可在 OpenAlex 官方免费申请。"
+            )
+        params: dict[str, Any] = {
+            "search": query, "per-page": min(max(limit, 1), 25), "api_key": api_key,
+        }
         if options.get("email"):
             params["mailto"] = str(options["email"])
         payload = self._get_json(self.endpoint, params=params)
