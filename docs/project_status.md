@@ -37,13 +37,13 @@
 ### 2.0 教育家人格智能分析系统 2.0（当前主线）
 
 - 已完成仓库、依赖、数据库、研究材料、模拟回退和隐私版权风险审查，并建立本地备份分支及项目外数据库备份。
-- 已完成跨平台启动脚本开发；Windows 实际服务联通已通过，macOS 脚本仍需在真实 Mac 上验收。
+- 已完成跨平台启动脚本开发；Windows 实际服务联通已通过，用户已在真实 Mac 上完成启动、浏览器打开和 Ctrl+C 清理验收。
 - 已新增版本化研究资源数据库、8 类文件解析、批量导入 API、SHA-256 去重、授权控制和导入任务记录。
 - 已新增 `/resources` 前端资源库页面，支持统计、筛选、详情、来源定位和批量导入。
 - 已完成 V2 多源采集中心：Wikidata 人物、Wikimedia Commons 开放视频/官方字幕、Crossref 论文元数据、需要 key 的 OpenAlex 适配器，以及央视网/教育部受限人工登记。
 - 已完成人物事实与身份审核、字幕纠错、授权 Whisper 后台任务、三重人格证据溯源、可定位知识检索和 Hit@K/MRR 科研评测。
 - 当前 Windows 验证：后端 `33 passed`；前端生产构建通过；隔离数据库真实来源 A–F 全通过。正式 `data/app.db` 未迁移，SHA-256 保持 `2660C31A...B4664F4`。
-- 第 6–10 项已完成；第 2 项仍只差真实 macOS 对依赖检测、浏览器打开和 Ctrl+C 清理的验收。
+- 第 1–10 项均已完成；真实 macOS 的依赖检测、浏览器打开、固定端口、Ctrl+C 清理和迁移数据展示已经用户验收。
 - 当前公开仓库含具名教师访谈材料，且研究材料授权清单缺失；在授权核实和去标识化前，不继续推送全文或衍生数据。
 - 详细开发清单见 [development_plan_v2.md](development_plan_v2.md)，审查见 [audit/2026-10-19-repository-audit.md](audit/2026-10-19-repository-audit.md)。
 - 多源采集真实验收见 [validation/2026-10-20-multi-source-e2e.md](validation/2026-10-20-multi-source-e2e.md)。
@@ -131,9 +131,9 @@
 - 新增 `/collection` 与 `/knowledge` 页面，支持来源/任务管理、人物审核、视频与字幕、播放器时间定位、证据检索和评测。
 - 实现授权 Whisper 后台作业；未安装 CLI 的环境给出明确失败日志，不把未执行的推理标为成功。
 - 真实 E2E：Wikidata Q19796、Commons CC BY-SA 4.0 视频及 54 条官方字幕、Crossref DOI、公版 Project Gutenberg 书籍 904 段、三条人格证据及知识检索 Hit@10/MRR 均通过。
-- Windows 验证为后端 `33 passed`、前端构建通过；正式数据库未修改；真实 macOS 与真实 Whisper 推理仍未测试。
+- Windows 验证为后端 `33 passed`、前端构建通过；正式 Windows 数据库未修改；用户已完成真实 macOS 启动及数据迁移验收，真实 Whisper 推理仍未测试。
 - 依赖审计：Python 为 0 个已知漏洞；npm 高危已从 7 降至 0，剩余 2 个同源 ECharts Lines-series 中危。当前未使用受影响的 Lines series，等待词云插件支持 ECharts 6 后升级。
-- 本轮保持工作区改动供用户审查，没有执行新的提交或推送。
+- V2 主体代码已提交到 `codex/first-five`；最终验收记录作为后续文档提交保留在同一审核分支，不直接合并 `main`。
 
 ### 2026-10-19 研究资源库第一轮
 

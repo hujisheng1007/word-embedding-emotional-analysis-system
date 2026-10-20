@@ -104,7 +104,7 @@ cd ..
 backend/.venv/bin/python -m alembic -c alembic.ini upgrade head
 ```
 
-这些迁移尚未在真实 macOS 上执行验证；部署到 Mac 时应在备份后的数据库上运行并核对终端输出。
+用户已于 2026-10-20 在真实 macOS 上完成迁移和启动验收。部署到其他 Mac 时仍应先备份数据库，再运行迁移并核对终端输出。
 
 Windows 与 macOS 的虚拟环境和 `node_modules` 不能直接共用。迁移源码后应在 macOS 上重新创建 `backend/.venv` 并安装依赖，不要拷贝 Windows 的 `.venv`。已有 macOS 可用环境时无需重新创建。
 
@@ -160,7 +160,7 @@ OPENALEX_API_KEY=从 OpenAlex 官方申请的 key
 
 提示缺少虚拟环境、Python 包或 Node.js 依赖时，回到对应平台的首次部署步骤安装；前端已有依赖不完整时可在 `frontend` 中重新执行 `npm ci`。
 
-本次 macOS 启动方案可在 Windows 上检查脚本语法与模拟启动流程；未在真实 macOS 上验证运行结果。
+除 Windows 语法与模拟生命周期检查外，用户已于 2026-10-20 在真实 macOS 上完成依赖检测、默认浏览器打开、5173/8000 固定端口和 Ctrl+C 清理验收。
 
 ## 研究资源库
 
@@ -202,7 +202,7 @@ OPENALEX_API_KEY=从 OpenAlex 官方申请的 key
 
 访问 `http://127.0.0.1:5173/knowledge` 可在已授权正文和文字稿中检索。每条命中都显示原始来源和定位信息。评测区接受带期望资源 ID 的案例集，保存 Hit@K、MRR 和逐题排序结果，方便复现实验。
 
-真实来源 A–F 验证方法与结果见 [多源采集端到端验证](docs/validation/2026-10-20-multi-source-e2e.md)。当前 Windows 检查为后端 `33 passed`、前端生产构建通过；没有声称在真实 macOS 上测试成功。
+真实来源 A–F 验证方法与结果见 [多源采集端到端验证](docs/validation/2026-10-20-multi-source-e2e.md)。Windows 检查为后端 `33 passed`、前端生产构建通过；用户另在真实 macOS 上完成一键启动和迁移数据展示验收。真实 Whisper 推理仍未执行。
 
 ## 模型接入
 
