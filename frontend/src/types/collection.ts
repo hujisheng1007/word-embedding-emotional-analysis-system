@@ -13,6 +13,7 @@ export interface CollectionStats {
 }
 
 export interface CollectionJob {
+  research_group: string;
   id: string; source_id: string; source_name: string; job_type: string; query: string;
   status: string; total_count: number; success_count: number; failed_count: number;
   duplicate_count: number; retry_count: number; error_message: string;

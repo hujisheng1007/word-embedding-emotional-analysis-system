@@ -61,3 +61,28 @@ def test_search_keeps_source_locator_and_evaluation_is_reproducible(services) ->
     assert evaluation.hit_rate_at_k == 1.0
     assert evaluation.mean_reciprocal_rank == 1.0
     assert evaluation.results[0].first_relevant_rank == 1
+
+
+def test_search_includes_segments_beyond_first_ten_thousand(services) -> None:
+    from datetime import datetime
+    from sqlalchemy import insert
+    from app.db.research_models import ResourceSegment
+
+    resources, knowledge = services
+    result = resources.import_file(
+        filename="large-library.txt", data="普通材料".encode(),
+        title="扩展资源库", resource_type="book", fulltext_allowed=True,
+        copyright_status="unknown", access_level="internal",
+    )
+    with resources.session_factory() as session:
+        session.execute(insert(ResourceSegment), [
+            dict(id=f"large-{i}", resource_id=result.resource_id, ordinal=i + 1,
+                 locator_type="paragraph", locator_value=str(i + 1),
+                 text="末尾唯一检索词" if i == 10000 else "普通材料",
+                 text_sha256=f"{i:064x}", created_at=datetime.utcnow())
+            for i in range(1, 10001)
+        ])
+        session.commit()
+    response = knowledge.search(KnowledgeSearchRequest(query="末尾唯一检索词"))
+    assert response.hits
+    assert response.hits[0].locator_value == "10001"

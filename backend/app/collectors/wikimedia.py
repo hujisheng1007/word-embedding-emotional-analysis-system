@@ -19,18 +19,19 @@ def _plain(value: Any) -> str:
 
 class WikimediaVideoAdapter(HttpAdapter):
     key = "wikimedia_commons"
+    media_type = "video"
     endpoint = "https://commons.wikimedia.org/w/api.php"
 
     def search(self, query: str, limit: int = 10, **options: Any) -> list[Candidate]:
         payload = self._get_json(self.endpoint, params={
-            "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:video",
+            "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:{self.media_type}",
             "gsrnamespace": 6, "gsrlimit": min(max(limit, 1), 25), "prop": "imageinfo",
             "iiprop": "url|mime|mediatype|extmetadata|size", "format": "json", "formatversion": 2,
         })
         candidates: list[Candidate] = []
         for page in payload.get("query", {}).get("pages", []):
             info = (page.get("imageinfo") or [{}])[0]
-            if str(info.get("mediatype") or "").upper() != "VIDEO":
+            if str(info.get("mediatype") or "").upper() != ("AUDIO" if self.media_type == "audio" else "VIDEO"):
                 continue
             metadata = info.get("extmetadata") or {}
             license_code = _plain(metadata.get("LicenseShortName")) or "unknown"
@@ -39,7 +40,7 @@ class WikimediaVideoAdapter(HttpAdapter):
             title = str(page.get("title") or "")
             media_url = str(info.get("url") or "")
             candidates.append(Candidate(
-                kind="video", external_id=title, title=title.removeprefix("File:"),
+                kind=self.media_type, external_id=title, title=title.removeprefix("File:"),
                 source_name="Wikimedia Commons", source_url=str(info.get("descriptionurl") or ""),
                 description=_plain(metadata.get("ImageDescription")),
                 educator_name=str(options.get("educator_name") or query),
@@ -64,3 +65,8 @@ class WikimediaVideoAdapter(HttpAdapter):
         if not text.startswith("WEBVTT"):
             raise CollectorError(f"视频没有可用的 {language} WebVTT 字幕")
         return text
+
+
+class WikimediaAudioAdapter(WikimediaVideoAdapter):
+    key = "wikimedia_audio"
+    media_type = "audio"

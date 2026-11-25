@@ -26,6 +26,7 @@ class CollectionSourceView(BaseModel):
 
 
 class CollectionJobCreate(BaseModel):
+    research_group: str = Field(default="待核实 / 对照资料", max_length=80)
     source_id: str
     query: str = Field(min_length=1, max_length=300)
     educator_name: str = Field(default="", max_length=255)
@@ -39,6 +40,7 @@ class SourceScheduleUpdate(BaseModel):
 
 
 class CollectionJobView(BaseModel):
+    research_group: str = "待核实 / 对照资料"
     id: str
     source_id: str
     source_name: str
@@ -160,7 +162,7 @@ class ManualResourceCreate(BaseModel):
     source_id: str
     title: str = Field(min_length=1, max_length=500)
     source_url: HttpUrl
-    resource_type: str = Field(pattern="^(video|webpage)$")
+    resource_type: str = Field(pattern="^(video|audio|webpage)$")
     educator_name: str = ""
     description: str = ""
     restriction_reason: str = "仅登记公开页面元数据；未获得媒体下载或转写授权"

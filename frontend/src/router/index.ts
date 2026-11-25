@@ -5,10 +5,13 @@ import DashboardView from "../views/dashboard/DashboardView.vue";
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: "/analysis", redirect: "/" },
+    { path: "/legacy-profile", redirect: "/" },
+    { path: "/", name: "profile", component: DashboardView },
     {
-      path: "/",
-      name: "dashboard",
-      component: DashboardView
+      path: "/moral",
+      name: "moral",
+      component: () => import("../views/moral/MoralAnalysisView.vue")
     },
     {
       path: "/resources",

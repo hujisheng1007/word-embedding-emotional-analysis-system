@@ -6,11 +6,20 @@ from .base import SourceAdapter
 from .crossref import CrossrefWorksAdapter
 from .openalex import OpenAlexWorksAdapter
 from .wikidata import WikidataPersonAdapter
-from .wikimedia import WikimediaVideoAdapter
+from .wikimedia import WikimediaVideoAdapter, WikimediaAudioAdapter
+from .news import NewsRSSAdapter
 
 
 def source_definitions() -> list[dict[str, Any]]:
     return [
+        {"name":"公开新闻报道索引（RSS）","adapter_key":"news_rss","source_type":"webpage",
+         "base_url":"https://news.google.com/","terms_url":"https://policies.google.com/terms","robots_url":"https://news.google.com/robots.txt",
+         "license_note":"仅检索新闻索引标题与链接；不复制报道正文。人物相关性及转载关系待核实。",
+         "allows_metadata":True,"allows_subtitles":False,"allows_media_download":False,"allows_transcription":False,"rate_limit_per_minute":6},
+        {"name":"Wikimedia Commons 开放音频","adapter_key":"wikimedia_audio","source_type":"audio",
+         "base_url":"https://commons.wikimedia.org/","terms_url":"https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use","robots_url":"https://commons.wikimedia.org/robots.txt",
+         "license_note":"逐文件核验许可；当前仅登记音频元数据，不自动转写。",
+         "allows_metadata":True,"allows_subtitles":False,"allows_media_download":False,"allows_transcription":False,"rate_limit_per_minute":10},
         {"name": "Wikidata 教育家人物资料", "adapter_key": "wikidata", "source_type": "person",
          "base_url": "https://www.wikidata.org/", "terms_url": "https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use",
          "robots_url": "https://www.wikidata.org/robots.txt", "license_note": "结构化数据 CC0；候选事实仍需人工审核并保留实体来源",
@@ -47,6 +56,7 @@ def source_definitions() -> list[dict[str, Any]]:
 def get_adapter(key: str) -> SourceAdapter:
     adapters: dict[str, type] = {
         "wikidata": WikidataPersonAdapter, "wikimedia_commons": WikimediaVideoAdapter,
+        "news_rss": NewsRSSAdapter, "wikimedia_audio": WikimediaAudioAdapter,
         "openalex": OpenAlexWorksAdapter, "crossref": CrossrefWorksAdapter,
     }
     adapter_class = adapters.get(key)

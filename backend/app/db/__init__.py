@@ -21,3 +21,5 @@ __all__ = [
     "get_session_factory",
     "init_database",
 ]
+
+from .moral_models import MoralEvent, MoralRun, MoralReview

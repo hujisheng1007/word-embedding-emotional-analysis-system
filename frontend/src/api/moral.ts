@@ -1,0 +1,13 @@
+import { request } from './client';
+import type { MoralResource,EventSummary,MoralEvent,MoralRun,MoralMethod,MoralCode,MoralStats,SourceSpan } from '../types/moral';
+const post = (body:unknown) => ({method:'POST',body:JSON.stringify(body)});
+export const moralResources=()=>request<MoralResource[]>('/moral/resources');
+export const moralStats=()=>request<MoralStats>('/moral/stats');
+export const moralEvents=(resourceId='',offset=0)=>request<{items:EventSummary[];total:number}>(`/moral/events?resource_id=${encodeURIComponent(resourceId)}&limit=50&offset=${offset}`);
+export const moralDetail=(id:string)=>request<MoralEvent>(`/moral/events/${id}`);
+export const moralContext=(id:string)=>request<SourceSpan[]>(`/moral/events/${id}/context`);
+export const buildMoralEvents=(resource_ids:string[],per_resource:number,keyword:string,before=2,after=2,min_keyword_hits=1)=>request<{created:number;items:{id:string;created:boolean}[];skipped:{reason:string}[];note:string}>('/moral/events/build',post({resource_ids,per_resource,keyword,before,after,min_keyword_hits}));
+export const createMoralEvent=(resource_id:string,segment_ids:string[])=>request<{id:string;created:boolean}>('/moral/events',post({resource_id,segment_ids}));
+export const analyzeMoralEvent=(id:string,method:MoralMethod)=>request<MoralRun>(`/moral/events/${id}/analyze`,post({method}));
+export const reviewMoralEvent=(id:string,payload:{expected_revision:number;reviewer:string;note:string;eligibility:'confirmed'|'excluded';codes:MoralCode[]})=>request<MoralEvent>(`/moral/events/${id}/reviews`,post(payload));
+export const exportMoralEvents=()=>request<unknown>('/moral/export');

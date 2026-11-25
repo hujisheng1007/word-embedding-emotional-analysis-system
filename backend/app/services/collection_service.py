@@ -372,6 +372,7 @@ class CollectionService:
                 query = json.loads(job.query_json)
                 result.append(CollectionJobView(
                     id=job.id, source_id=job.source_id, source_name=source_name,
+                    research_group=query.get("research_group", "待核实 / 对照资料"),
                     job_type=job.job_type, query=query.get("query", ""), status=job.status,
                     total_count=job.total_count, success_count=job.success_count,
                     failed_count=job.failed_count, duplicate_count=job.duplicate_count,

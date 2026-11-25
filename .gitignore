@@ -18,3 +18,21 @@ htmlcov/
 uploads/
 backend/runtime/
 .tmp/
+
+# Local databases, exports, migration packages, and research source material.
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.zip
+/outputs/
+/tmp_artifact_build/
+/20世纪教育家1/
+/20世纪教育家图书2/
+/*.pdf
+/*.docx
+/*.pptx
+/*.xlsx
+/*.txt
+/docs/validation/2026-11-02-collection-progress.json

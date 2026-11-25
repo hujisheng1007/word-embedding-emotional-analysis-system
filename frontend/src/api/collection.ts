@@ -11,7 +11,7 @@ export const getPeople = (keyword = "") => request<EducatorPerson[]>(`/collectio
 export const getVideos = (keyword = "") => request<CollectedVideo[]>(`/collection/videos?keyword=${encodeURIComponent(keyword)}`);
 
 export function createCollectionJob(payload: {
-  source_id: string; query: string; educator_name: string; limit: number; language: string; contact_email: string;
+  research_group?: string; source_id: string; query: string; educator_name: string; limit: number; language: string; contact_email: string;
 }) {
   return request<{ job_id: string; status: string }>("/collection/jobs", {
     method: "POST", body: JSON.stringify(payload)

@@ -76,9 +76,10 @@ class KnowledgeService:
                 statement = statement.where(EducatorPerson.display_name.contains(payload.educator_name.strip()))
             if payload.resource_type.strip():
                 statement = statement.where(ResearchResource.resource_type == payload.resource_type.strip())
-            rows = session.execute(statement.limit(10000)).all()
             scored: list[KnowledgeHit] = []
-            for segment, resource, person in rows:
+            # Stream the full corpus so later-imported books remain searchable.
+            # A fixed prefix silently excluded resources once the library grew.
+            for segment, resource, person in session.execute(statement.execution_options(yield_per=500)):
                 score = self._score(query, terms, resource.title, segment.text)
                 if score <= 0:
                     continue

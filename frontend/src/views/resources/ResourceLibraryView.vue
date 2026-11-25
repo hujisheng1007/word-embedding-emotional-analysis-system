@@ -20,7 +20,7 @@
 
     <section class="stat-grid">
       <article><span>资源总数</span><strong>{{ stats.total }}</strong></article>
-      <article><span>已授权全文</span><strong>{{ stats.fulltext_total }}</strong></article>
+      <article><span>已保存全文</span><strong>{{ stats.fulltext_total }}</strong></article>
       <article><span>受限访问</span><strong>{{ stats.restricted_total }}</strong></article>
       <article><span>资源类型</span><strong>{{ Object.keys(stats.type_counts).length }}</strong></article>
     </section>
@@ -69,6 +69,7 @@
         <div>
           <p class="eyebrow">{{ typeLabel(detail.resource_type) }}</p>
           <h2>{{ detail.title }}</h2>
+          <RouterLink v-if="detail.fulltext_allowed" :to="{ path: '/moral', query: { resource: detail.id } }">进入 Rest 事件分析 →</RouterLink>
           <p>{{ detail.author_names.join("、") || "作者未登记" }}</p>
         </div>
         <dl class="detail-grid">
@@ -162,6 +163,7 @@
 </template>
 
 <script setup lang="ts">
+import { RouterLink } from "vue-router";
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 

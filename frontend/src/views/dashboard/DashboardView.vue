@@ -2,11 +2,11 @@
   <main class="showcase-page">
     <section class="hero-band">
       <div class="hero-copy">
-        <p class="hero-kicker">Paper-driven Demo</p>
-        <h1>教育家三重人格量化映射台</h1>
+        <p class="hero-kicker">Educator Research</p>
+        <h1>教育家多模态资源与循证画像</h1>
         <p class="hero-summary">
-          这版页面继续沿用论文里的“自然人格 → 职业人格 → 道德人格”主轴，但把每一层再细分成更具体的品质与行为，
-          并为每个细项补上可参考的量化口径。单条输入、导入文本和在线抓取内容都会统一映射到这套结构上。
+          整合教育家传记、访谈与公开视听材料，以历史典范和当代教育实践为参照，梳理教育家品质、行动与责任的证据。
+          画像结果用于研究者复核与案例学习，规则评分不代表经过验证的人格测量。
         </p>
         <div class="hero-meta">
           <span>15 个细化品质/行为指标</span>
