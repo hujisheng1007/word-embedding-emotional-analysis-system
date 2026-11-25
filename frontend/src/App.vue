@@ -7,6 +7,8 @@
       <RouterLink to="/resources">研究资源库</RouterLink>
       <RouterLink to="/collection">多源数据采集中心</RouterLink>
       <RouterLink to="/knowledge">知识检索与评测</RouterLink>
+      <RouterLink to="/practice">典范案例</RouterLink>
+      <RouterLink to="/training">教师研习</RouterLink>
     </header>
     <RouterView />
   </div>

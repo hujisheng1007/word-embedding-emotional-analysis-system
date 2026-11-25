@@ -57,6 +57,7 @@
           <div class="event-heading"><div><h3>{{ detail.snapshot.educator_name }} · {{ detail.snapshot.resource_title }}</h3><p class="helper">{{ detail.snapshot.analysis_modality }} · 复核版本 {{ detail.review_revision }} · {{ eligibilityLabel(detail.eligibility) }}</p></div><el-button :disabled="busy || detail.eligibility==='excluded'" type="primary" @click="analyzeCurrent">分析此事件</el-button></div>
           <p class="helper">来源：{{ detail.snapshot.source_institution || '待补充' }} · 原文快照已保存。<a v-if="safeSource" :href="safeSource" target="_blank" rel="noopener noreferrer">访问来源</a></p>
           <div class="source-header"><strong>原文与定位</strong><el-button size="small" @click="showContext">检查 / 调整窗口边界</el-button></div>
+          <RouterLink :to="{ path: '/practice', query: { event: detail.id } }">用此原文窗口创建实践案例 →</RouterLink>
           <div class="source-text">
             <article v-for="span in detail.snapshot.spans" :key="span.segment_id">
               <div class="locator"><span>{{ span.locator_type }}：{{ span.locator_value }}</span><el-button link type="primary" @click="addQuote(span)">引用到「{{ componentName(activeComponent) }}」</el-button></div>

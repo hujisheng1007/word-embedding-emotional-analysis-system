@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.settings import get_settings
 from app.db.base import Base
 from app.db import moral_models  # noqa: F401
+from app.db import practice_models  # noqa: F401
 from app.db import research_models  # noqa: F401
 
 

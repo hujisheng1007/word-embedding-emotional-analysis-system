@@ -7,6 +7,7 @@ from app.api.routes.moral import router as moral_router
 from app.api.routes.analysis import router as analysis_router
 from app.api.routes.collection import router as collection_router
 from app.api.routes.knowledge import router as knowledge_router
+from app.api.routes.practice import router as practice_router, training_router
 from app.api.routes.research_resources import router as research_resources_router
 from app.services.collection_scheduler import scheduler as collection_scheduler
 
@@ -42,6 +43,8 @@ app.include_router(analysis_router, prefix="/api")
 app.include_router(research_resources_router, prefix="/api")
 app.include_router(collection_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
+app.include_router(practice_router, prefix="/api")
+app.include_router(training_router, prefix="/api")
 
 
 @app.get("/health")

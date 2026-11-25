@@ -27,6 +27,21 @@ const router = createRouter({
       path: "/knowledge",
       name: "knowledge",
       component: () => import("../views/knowledge/KnowledgeResearchView.vue")
+    },
+    {
+      path: "/practice",
+      name: "practice",
+      component: () => import("../views/practice/PracticeWorkbench.vue")
+    },
+    {
+      path: "/training",
+      name: "training",
+      component: () => import("../views/training/TrainingView.vue")
+    },
+    {
+      path: "/cases/:id",
+      name: "practice-case",
+      component: () => import("../views/training/CaseView.vue")
     }
   ]
 });

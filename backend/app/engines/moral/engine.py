@@ -2,6 +2,7 @@ import json
 import httpx
 from app.schemas.moral import Coding
 from app.services.foundation_profile_service import get_foundation_profile_service
+from app.utils.evidence import resolve_quote
 
 VERSION = 'rest-narrative-0.1'
 COMPONENTS = [
@@ -35,14 +36,9 @@ def validate_evidence(coding, spans, require_evidence=True):
         for e in code.evidence:
             if e.segment_id not in sources:
                 raise ValueError('引文引用了本次事件之外的片段')
-            source=sources[e.segment_id]
-            if e.start_char is None or e.end_char is None:
-                first=source.find(e.quote)
-                if first<0 or source.find(e.quote,first+1)>=0:
-                    raise ValueError('引文不存在或重复位置不明确，请指定精确字符范围')
-                e.start_char=first;e.end_char=first+len(e.quote)
-            if not e.quote.strip() or not (0 <= e.start_char < e.end_char <= len(source)) or source[e.start_char:e.end_char]!=e.quote:
-                raise ValueError('引文与原文字符范围不一致')
+            e.start_char, e.end_char = resolve_quote(
+                sources[e.segment_id], e.quote, e.start_char, e.end_char
+            )
         if require_evidence:
             polarities={e.polarity for e in code.evidence}
             required={'supported':{'support'},'counterevidence':{'counter'},'mixed':{'support','counter'}}.get(code.status,set())

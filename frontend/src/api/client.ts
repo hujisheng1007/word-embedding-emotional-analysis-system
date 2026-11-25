@@ -4,8 +4,9 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = `请求失败：${response.status}`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      detail = payload.detail || detail;
+      const payload = (await response.json()) as { detail?: string | { msg?: string }[] };
+      if (typeof payload.detail === "string") detail = payload.detail || detail;
+      if (Array.isArray(payload.detail)) detail = payload.detail[0]?.msg || detail;
     } catch {
       // Keep the status-based message when the server did not return JSON.
     }

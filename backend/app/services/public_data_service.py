@@ -6,9 +6,6 @@ import random
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
-import aiotieba as tb
-from aiotieba.enums import ThreadSortType
-
 from app.schemas.analysis import (
     BatchAnalysisRequest,
     PublicSource,
@@ -98,6 +95,12 @@ class PublicDataService:
         return texts[:limit]
 
     def _fetch_tieba_forum_texts(self, forum_name: str, limit: int) -> list[str]:
+        try:
+            import aiotieba as tb
+            from aiotieba.enums import ThreadSortType
+        except ImportError as exc:
+            raise ValueError("贴吧数据源需要安装 aiotieba 及其依赖") from exc
+
         async def _runner() -> list[str]:
             async with tb.Client() as client:
                 rng = random.SystemRandom()

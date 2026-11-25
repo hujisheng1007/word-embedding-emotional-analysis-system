@@ -70,6 +70,7 @@
           <p class="eyebrow">{{ typeLabel(detail.resource_type) }}</p>
           <h2>{{ detail.title }}</h2>
           <RouterLink v-if="detail.fulltext_allowed" :to="{ path: '/moral', query: { resource: detail.id } }">进入 Rest 事件分析 →</RouterLink>
+          <RouterLink v-if="detail.fulltext_allowed" :to="{ path: '/practice', query: { resource: detail.id } }">提取典范实践 →</RouterLink>
           <p>{{ detail.author_names.join("、") || "作者未登记" }}</p>
         </div>
         <dl class="detail-grid">
