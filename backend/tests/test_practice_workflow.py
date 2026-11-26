@@ -268,6 +268,28 @@ def test_publish_requires_core_evidence_and_source_sharing_permission(workflow):
     assert client.post("/api/practice/cases", json=payload).status_code == 422
 
 
+def test_training_returns_local_materials_with_a_source_locator(workflow, monkeypatch):
+    client, factory, model = workflow
+    phrase = "兼容并包"
+    resource_id, _ = import_source(client, "人物画传", lines=["扉页", "蔡元培主张兼容并包。"])
+    import_source(client, "内部草稿", access="restricted", lines=["兼容并包是本页关键词。"])
+    with factory.begin() as session:
+        session.get(ResearchResource, resource_id).copyright_status = "unknown"
+
+    def reply(query, evidence, config, *, cases, language):
+        assert cases == []
+        assert evidence == []
+        return ModelAnswer(answer="可以查看相关资料。", evidence_fit="none", claims=[])
+
+    monkeypatch.setattr(model, "answer", reply)
+    response = client.post("/api/training/answers", json={"query": phrase})
+    assert response.status_code == 200, response.text
+    materials = response.json()["related_resources"]
+    assert [item["resource_id"] for item in materials] == [resource_id]
+    assert materials[0]["locator_value"] == "2"
+    assert phrase in materials[0]["excerpt"]
+
+
 def test_graph_search_answer_and_permissions_use_published_cases(workflow):
     client, factory, model = workflow
     concept = client.post("/api/practice/concepts", json={

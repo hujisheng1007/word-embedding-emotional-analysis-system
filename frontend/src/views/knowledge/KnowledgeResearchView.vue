@@ -3,7 +3,7 @@
     <section class="hero">
       <p class="eyebrow">Evidence retrieval & evaluation</p>
       <h1>知识检索与科研评测</h1>
-      <p>在已获授权的正文和文字稿中检索，结果始终携带资源、来源与页码/时间戳定位；评测使用 Hit@K 和 MRR。</p>
+      <p>检索资料库已保存的正文和文字稿，按页码、段落或时间戳查看来源。评测使用 Hit@K 和 MRR。</p>
     </section>
     <section class="search-card">
       <el-form :model="form" label-position="top" class="search-form">
@@ -17,7 +17,18 @@
       <div class="hits">
         <article v-for="(hit, index) in searchResult?.hits" :key="hit.segment_id">
           <span class="rank">{{ index + 1 }}</span>
-          <div><h3>{{ hit.resource_title }}</h3><p>{{ hit.excerpt }}</p><footer><el-tag size="small">{{ hit.resource_type }}</el-tag><span>{{ hit.educator_name || '未关联人物' }}</span><span>{{ hit.locator_type }}：{{ hit.locator_value }}</span><span>score {{ hit.score.toFixed(2) }}</span><a :href="hit.source_url" target="_blank">原始来源</a></footer></div>
+          <div>
+            <h3>{{ hit.resource_title }}</h3>
+            <p>{{ hit.excerpt }}</p>
+            <footer>
+              <el-tag size="small">{{ hit.resource_type }}</el-tag>
+              <span v-if="hit.educator_name">{{ hit.educator_name }}</span>
+              <span>{{ formatLocator(hit.locator_type, hit.locator_value) }}</span>
+              <span>score {{ hit.score.toFixed(2) }}</span>
+              <RouterLink :to="{ name: 'resources', query: { resource: hit.resource_id, segment: hit.segment_id } }">定位原文片段</RouterLink>
+              <a v-if="hit.source_url" :href="hit.source_url" target="_blank" rel="noopener noreferrer">原始来源</a>
+            </footer>
+          </div>
         </article>
       </div>
     </section>
@@ -36,9 +47,11 @@
 
 <script setup lang="ts">
 import { reactive, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { ElMessage } from "element-plus";
 import { evaluateRetrieval, searchKnowledge } from "../../api/knowledge";
 import type { EvaluationCase, EvaluationResponse, KnowledgeSearchResponse } from "../../types/knowledge";
+import { formatLocator } from "../../types/practice";
 
 const form = reactive({ query: "", educatorName: "", resourceType: "", topK: 10 });
 const searching = ref(false); const evaluating = ref(false);

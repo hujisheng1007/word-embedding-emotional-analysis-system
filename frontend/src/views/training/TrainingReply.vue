@@ -39,6 +39,20 @@
       <h3 class="reflections">{{ answerLabels.reflection }}</h3>
       <ul><li v-for="question in result.reflection_questions" :key="question">{{ question }}</li></ul>
     </template>
+    <section v-if="result.related_resources?.length" class="reflections">
+      <h3>{{ answerLabels.localMaterials }}</h3>
+      <ul class="practice-list">
+        <li v-for="hit in result.related_resources" :key="hit.segment_id">
+          <details>
+            <summary>{{ hit.resource_title }} · {{ formatLocator(hit.locator_type, hit.locator_value) }}</summary>
+            <blockquote class="practice-quote">{{ hit.excerpt }}</blockquote>
+            <RouterLink :to="{ name: 'resources', query: { resource: hit.resource_id, segment: hit.segment_id } }">
+              {{ answerLabels.viewMaterial }}
+            </RouterLink>
+          </details>
+        </li>
+      </ul>
+    </section>
     <details v-if="result.lookup_trace?.length" class="reflections">
       <summary>{{ answerLabels.trace }}</summary>
       <ul>
@@ -60,6 +74,7 @@ const answerLabels = computed(() => props.result.language === "en" ? {
   title: "Answer", nextStep: "What to check next", question: "One question to clarify",
   relatedEvidence: "Related evidence", caseEvidence: "Evidence", reflection: "Reflection", interviewRecord: "Interview record",
   modelFallback: "Showing database results. A model-generated reply is unavailable.",
+  localMaterials: "Related library materials", viewMaterial: "Open matched passage",
   trace: "Show database lookup", lookup: {
     catalog: "Catalog records loaded", search: "Published cases found", graph: "Related cases found",
     evidence: "Citations retrieved", context: "Case records retrieved for this reply",
@@ -69,6 +84,7 @@ const answerLabels = computed(() => props.result.language === "en" ? {
   title: "研习回答", nextStep: "建议先核实", question: "需要确认的问题",
   relatedEvidence: "相关依据", caseEvidence: "回答依据", reflection: "实践反思", interviewRecord: "访谈记录",
   modelFallback: "模型回答暂不可用，以下根据数据库检索结果展示。",
+  localMaterials: "相关资料库原文", viewMaterial: "定位原文片段",
   trace: "查看数据库检索过程", lookup: {
     catalog: "读取案例目录", search: "检索已发布案例", graph: "沿图谱查找同类案例",
     evidence: "读取原文引证", context: "读取本次回答所用的案例记录",

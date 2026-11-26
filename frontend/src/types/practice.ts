@@ -1,3 +1,5 @@
+import type { KnowledgeHit } from "./knowledge";
+
 export const fieldLabels = {
   context: "教育情境",
   problem: "实际问题",
@@ -189,6 +191,7 @@ export interface TrainingAnswer {
   claims: { text: string; evidence: (AnswerEvidence | InterviewEvidence)[] }[];
   reflection_questions: string[];
   matches: CaseCard[];
+  related_resources?: KnowledgeHit[];
   lookup_trace?: { action: "catalog" | "search" | "graph" | "evidence" | "context" | "interview_scan" | "interview_context"; count: number }[];
 }
 

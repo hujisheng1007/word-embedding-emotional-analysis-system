@@ -64,7 +64,7 @@
       </el-table>
     </section>
 
-    <el-drawer v-model="detailVisible" title="资源详情" size="min(720px, 92vw)">
+    <el-drawer v-model="detailVisible" title="资源详情" size="min(720px, 92vw)" @opened="focusLinkedSegment">
       <div v-if="detail" class="detail-stack">
         <div>
           <p class="eyebrow">{{ typeLabel(detail.resource_type) }}</p>
@@ -95,7 +95,8 @@
         </section>
         <section v-if="detail.segments.length">
           <h3>可追溯片段</h3>
-          <article v-for="segment in detail.segments" :key="segment.id" class="segment-card">
+          <article v-for="segment in detail.segments" :id="`resource-segment-${segment.id}`" :key="segment.id"
+            class="segment-card" tabindex="-1">
             <span>{{ segment.locator_type }} · {{ segment.locator_value }}</span>
             <p>{{ segment.text }}</p>
           </article>
@@ -164,8 +165,8 @@
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from "vue-router";
-import { onMounted, reactive, ref } from "vue";
+import { RouterLink, useRoute } from "vue-router";
+import { onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import { getResearchResource, getResourceStats, importResearchResources, listResearchResources } from "../../api/research";
@@ -192,6 +193,7 @@ const resourceTypes = [
 ];
 
 const stats = ref(emptyStats());
+const route = useRoute();
 const resources = ref<ResearchResourceSummary[]>([]);
 const detail = ref<ResearchResourceDetail | null>(null);
 const loading = ref(false);
@@ -248,6 +250,14 @@ async function openDetail(resourceId: string): Promise<void> {
   }
 }
 
+function focusLinkedSegment(): void {
+  const segmentId = route.query.segment;
+  if (typeof segmentId !== "string") return;
+  const element = document.getElementById(`resource-segment-${segmentId}`);
+  element?.focus({ preventScroll: true });
+  element?.scrollIntoView({ block: "center" });
+}
+
 function onFileChange(event: Event): void {
   const target = event.target as HTMLInputElement;
   selectedFiles.value = Array.from(target.files ?? []);
@@ -285,6 +295,9 @@ async function submitImport(): Promise<void> {
 }
 
 onMounted(refresh);
+watch(() => route.query.resource, (id) => {
+  if (typeof id === "string" && id) void openDetail(id);
+}, { immediate: true });
 </script>
 
 <style scoped>

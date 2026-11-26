@@ -7,7 +7,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import inspect, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import load_only, sessionmaker
 
 from app.db.research_models import (
     EducatorPerson, KnowledgeQueryRun, ResearchResource, ResourceSegment,
@@ -64,14 +64,71 @@ class KnowledgeService:
             score += 5.0
         return round(score, 6)
 
+    @staticmethod
+    def _hit(segment: ResourceSegment, resource: ResearchResource, person: EducatorPerson | None,
+             score: float, excerpt: str) -> KnowledgeHit:
+        return KnowledgeHit(
+            resource_id=resource.id, resource_title=resource.title,
+            resource_type=resource.resource_type, educator_name=person.display_name if person else "",
+            source_url=resource.source_url, copyright_status=resource.copyright_status,
+            segment_id=segment.id, locator_type=segment.locator_type,
+            locator_value=segment.locator_value, excerpt=excerpt, score=score,
+        )
+
+    @staticmethod
+    def _resource_segments():
+        return (
+            select(ResourceSegment, ResearchResource, EducatorPerson)
+            .join(ResearchResource, ResourceSegment.resource_id == ResearchResource.id)
+            .outerjoin(EducatorPerson, ResearchResource.educator_person_id == EducatorPerson.id)
+            .options(
+                load_only(ResearchResource.id, ResearchResource.title, ResearchResource.resource_type,
+                          ResearchResource.source_url, ResearchResource.copyright_status),
+                load_only(EducatorPerson.display_name),
+            )
+        )
+
+    def training_materials(self, queries: list[str], limit: int = 4) -> list[KnowledgeHit]:
+        terms_by_query = {
+            query: {term for term in _tokens(query) if len(term) > 1}
+            for query in dict.fromkeys(value.strip().lower() for value in queries if value.strip())
+        }
+        if not any(terms_by_query.values()):
+            return []
+        matches: dict[str, KnowledgeHit] = {}
+        statement = self._resource_segments().where(
+            ResearchResource.fulltext_allowed.is_(True),
+            ResearchResource.copyright_status != "restricted",
+            ResearchResource.access_level.in_(("internal", "public")),
+        ).order_by(ResourceSegment.resource_id, ResourceSegment.ordinal)
+        with self.session_factory() as session:
+            for segment, resource, person in session.execute(statement.execution_options(yield_per=200)):
+                text = segment.text.lower()
+                title = resource.title.lower()
+                best_score = 0.0
+                best_query = ""
+                for query, terms in terms_by_query.items():
+                    if not terms or (query not in title and query not in text and sum(term in text for term in terms) < 2):
+                        continue
+                    score = self._score(query, terms, title, text) / len(terms)
+                    if score > best_score:
+                        best_score, best_query = score, query
+                previous = matches.get(resource.id)
+                if best_score <= 0 or (previous and best_score <= previous.score):
+                    continue
+                position = text.find(best_query)
+                if position < 0:
+                    position = min((start for term in terms_by_query[best_query] if (start := text.find(term)) >= 0), default=0)
+                start = max(0, min(position - 100, len(text) - 360))
+                matches[resource.id] = self._hit(segment, resource, person, best_score, segment.text[start:start + 360])
+        return sorted(matches.values(), key=lambda hit: (-hit.score, hit.resource_title))[:limit]
+
     def search(self, payload: KnowledgeSearchRequest) -> KnowledgeSearchResponse:
         self._check_schema()
         query = payload.query.strip()
         terms = _tokens(query)
         with self.session_factory() as session:
-            statement = select(ResourceSegment, ResearchResource, EducatorPerson).join(
-                ResearchResource, ResourceSegment.resource_id == ResearchResource.id
-            ).outerjoin(EducatorPerson, ResearchResource.educator_person_id == EducatorPerson.id)
+            statement = self._resource_segments()
             if payload.educator_name.strip():
                 statement = statement.where(EducatorPerson.display_name.contains(payload.educator_name.strip()))
             if payload.resource_type.strip():
@@ -86,14 +143,7 @@ class KnowledgeService:
                 excerpt = segment.text.strip()
                 if len(excerpt) > 360:
                     excerpt = excerpt[:357] + "..."
-                scored.append(KnowledgeHit(
-                    resource_id=resource.id, resource_title=resource.title,
-                    resource_type=resource.resource_type,
-                    educator_name=person.display_name if person else "",
-                    source_url=resource.source_url, copyright_status=resource.copyright_status,
-                    segment_id=segment.id, locator_type=segment.locator_type,
-                    locator_value=segment.locator_value, excerpt=excerpt, score=score,
-                ))
+                scored.append(self._hit(segment, resource, person, score, excerpt))
             scored.sort(key=lambda item: (-item.score, item.resource_id, item.locator_value))
             hits = scored[:payload.top_k]
             run = KnowledgeQueryRun(

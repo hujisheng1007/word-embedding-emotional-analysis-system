@@ -351,13 +351,13 @@ class TrainingService:
             evidence.update(self._evidence_from_case(document))
         if case_context:
             lookup.trace.append({"action": "context", "count": len(case_context)})
+        if expansion and expansion.search_phrases:
+            queries = [question, *expansion.search_phrases]
+        else:
+            queries = [question, *sorted(lookup.queries)]
+            if history and not lookup.queries:
+                queries.append(payload.history[-1].question)
         if has_interviews:
-            if expansion and expansion.search_phrases:
-                queries = [question, *expansion.search_phrases]
-            else:
-                queries = [question, *sorted(lookup.queries)]
-                if history and not lookup.queries:
-                    queries.append(payload.history[-1].question)
             interviews = lookup.corpus.search(queries, min(payload.top_k, 5))
             evidence.update(interviews)
             lookup.trace.extend([
@@ -391,7 +391,11 @@ class TrainingService:
         visible_matches = [match for match in matches if (match["id"], match["revision"]) in available]
         if any((case["case_id"], case["revision"]) not in available for case in case_context):
             response = self._evidence_fallback({}, language, evidence_changed=True)
-        return {**response, "language": language, "matches": visible_matches, "lookup_trace": lookup.trace}
+        materials = KnowledgeService(self.practice.factory).training_materials(queries)
+        return {
+            **response, "language": language, "matches": visible_matches, "lookup_trace": lookup.trace,
+            "related_resources": [material.model_dump() for material in materials],
+        }
 
     def evaluate(self, payload: CaseEvaluation) -> dict:
         results = []
