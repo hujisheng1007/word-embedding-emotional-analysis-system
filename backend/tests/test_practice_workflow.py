@@ -131,9 +131,10 @@ def test_followup_scans_interviews_and_cites_the_original_record(workflow, monke
     def expand(query, concepts, config, *, history):
         assert query == "下一步怎么试？"
         assert history[0]["question"] == "怎样了解课堂沉默？"
-        return CaseQueryExpansion(search_phrases=["课堂沉默"])
+        return CaseQueryExpansion(standalone_question="怎样试着了解课堂沉默？", search_phrases=["课堂沉默"])
 
     def reply(query, evidence, config, *, cases, language, history):
+        assert query == "怎样试着了解课堂沉默？"
         assert not cases
         assert history[0]["answer"] == "先观察哪些环节学生没有回应。"
         assert [entry["quote"] for entry in evidence] == [quote]

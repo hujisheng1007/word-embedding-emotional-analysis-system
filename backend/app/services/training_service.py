@@ -295,6 +295,16 @@ class TrainingService:
         except ValueError:
             config = None
 
+        expansion = None
+        question = payload.query
+        if history and config:
+            previous_question = payload.history[-1].question
+            try:
+                expansion = self.model.interpret_query(question, [], config, **history)
+                expansion.concept_ids = []
+            except ValueError:
+                pass
+            question = (expansion.standalone_question if expansion else "") or f"{previous_question}\n{question}"
         lookup = TrainingDatabaseLookup(self, payload.top_k)
         has_interviews = lookup.corpus.has_records()
         if config and config.get("provider") == "deepseek":
@@ -304,14 +314,13 @@ class TrainingService:
                     concepts = self._published_problem_concepts(session)
                 try:
                     self.model.lookup_training_database(
-                        payload.query, concepts, {**catalog, "interview_rows": lookup.corpus.scanned},
+                        question, concepts, {**catalog, "interview_rows": lookup.corpus.scanned},
                         TRAINING_DATABASE_TOOLS, lookup.invoke, config, **history,
                     )
                 except ValueError:
                     pass
 
-        expansion = None
-        if config and not lookup.queries and (has_interviews or history):
+        if expansion is None and config and not lookup.queries and has_interviews and not history:
             try:
                 expansion = self.model.interpret_query(payload.query, [], config, **history)
                 expansion.concept_ids = []
@@ -343,11 +352,12 @@ class TrainingService:
         if case_context:
             lookup.trace.append({"action": "context", "count": len(case_context)})
         if has_interviews:
-            queries = [payload.query, *sorted(lookup.queries)]
             if expansion and expansion.search_phrases:
-                queries.extend(expansion.search_phrases)
-            elif history and not lookup.queries:
-                queries.append(payload.history[-1].question)
+                queries = [question, *expansion.search_phrases]
+            else:
+                queries = [question, *sorted(lookup.queries)]
+                if history and not lookup.queries:
+                    queries.append(payload.history[-1].question)
             interviews = lookup.corpus.search(queries, min(payload.top_k, 5))
             evidence.update(interviews)
             lookup.trace.extend([
@@ -358,7 +368,7 @@ class TrainingService:
             if config is None:
                 raise ValueError("强模型未配置")
             result = self.model.answer(
-                payload.query, self._model_evidence(evidence), config, cases=case_context, language=language, **history,
+                question, self._model_evidence(evidence), config, cases=case_context, language=language, **history,
             )
             claims = []
             for claim in result.claims:

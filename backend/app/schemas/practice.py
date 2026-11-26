@@ -121,6 +121,7 @@ class TrainingQuestion(CaseSearch):
 
 class CaseQueryExpansion(PracticeInput):
     concept_ids: list[Identifier] = Field(default_factory=list, max_length=4)
+    standalone_question: str = Field(default="", max_length=1000)
     search_phrases: list[Annotated[str, Field(min_length=2, max_length=60)]] = Field(
         default_factory=list, max_length=5
     )
