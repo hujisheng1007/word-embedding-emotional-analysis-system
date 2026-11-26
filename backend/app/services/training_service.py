@@ -6,7 +6,9 @@ from sqlalchemy import and_, select
 from app.db.practice_models import PracticeCase, PracticeCaseConcept, PracticeConcept, PracticeEvidence, PracticeRevision
 from app.db.research_models import ResearchResource
 from app.engines.practice.engine import ANSWER_PROMPT_VERSION, PracticeModel
-from app.schemas.practice import FIELD_LABELS, CaseEvaluation, CaseQueryExpansion, CaseSearch, PublishedCaseCatalog
+from app.schemas.practice import (
+    FIELD_LABELS, CaseEvaluation, CaseQueryExpansion, CaseSearch, PublishedCaseCatalog, TrainingQuestion,
+)
 from app.services.knowledge_service import KnowledgeService, _tokens
 from app.services.practice_service import PracticeNotFound, PracticeService, normalize_term
 from app.services.training_database_lookup import TRAINING_DATABASE_TOOLS, TrainingDatabaseLookup
@@ -238,11 +240,11 @@ class TrainingService:
 
     @staticmethod
     def _model_evidence(evidence: dict[str, dict]) -> list[dict]:
-        return [{
-            key: entry[key] for key in (
-                "id", "quote", "field", "case_id", "revision", "case_title", "source_title", "locator_type", "locator_value",
-            )
-        } for entry in evidence.values()]
+        keys = (
+            "id", "kind", "quote", "field", "case_id", "revision", "case_title",
+            "source_title", "locator_type", "locator_value", "source_file",
+        )
+        return [{key: entry[key] for key in keys if key in entry} for entry in evidence.values()]
 
     @staticmethod
     def _model_case(document: dict) -> dict:
@@ -268,16 +270,16 @@ class TrainingService:
 
     @staticmethod
     def _evidence_fallback(evidence: dict[str, dict], language: str, *, evidence_changed: bool = False) -> dict:
-        quotes = [entry for entry in evidence.values() if entry["field"] == "strategy"][:3]
+        quotes = [entry for entry in evidence.values() if entry["field"] in {"strategy", "interview"}][:3]
         if evidence_changed:
             answer = ("The available evidence changed while preparing this reply. Run the question again."
                       if language == "en" else "回答生成期间，可用案例证据发生了变化。请重新提问。")
         elif quotes:
-            answer = ("These excerpts describe strategies used in related cases. Their relevance depends on your classroom situation."
-                      if language == "en" else "这些引文记录了相关案例采用的策略。是否适用于你的班级取决于具体情境。")
+            answer = ("These excerpts offer related teaching experiences. How they apply depends on your classroom situation."
+                      if language == "en" else "这些引文记录了可参考的教学经验。是否适用于你的班级取决于具体情境。")
         else:
-            answer = ("The published cases provide too little evidence to answer this question."
-                      if language == "en" else "已发布案例暂缺足以回答这个教学问题的证据。")
+            answer = ("The available materials provide too little evidence to answer this question."
+                      if language == "en" else "现有研习资料暂缺足以回答这个教学问题的证据。")
         return {
             "mode": "evidence" if quotes else "insufficient",
             "answer": answer, "evidence_fit": "indirect" if quotes else "none", "message": "",
@@ -285,33 +287,48 @@ class TrainingService:
             "claims": [{"text": entry["quote"], "evidence": [entry]} for entry in quotes],
         }
 
-    def answer(self, payload: CaseSearch) -> dict:
+    def answer(self, payload: TrainingQuestion) -> dict:
         language = "en" if re.search(r"[A-Za-z]{2,}", payload.query) and not re.search(r"[\u3400-\u9fff]", payload.query) else "zh"
+        history = {"history": [turn.model_dump() for turn in payload.history]} if payload.history else {}
         try:
             config = self.model.configuration()
         except ValueError:
             config = None
 
         lookup = TrainingDatabaseLookup(self, payload.top_k)
+        has_interviews = lookup.corpus.has_records()
         if config and config.get("provider") == "deepseek":
             catalog = lookup.catalog(PublishedCaseCatalog())
-            if catalog["cases"]:
+            if catalog["cases"] or has_interviews:
                 with self.practice.factory() as session:
                     concepts = self._published_problem_concepts(session)
                 try:
                     self.model.lookup_training_database(
-                        payload.query, concepts, catalog, TRAINING_DATABASE_TOOLS, lookup.invoke, config,
+                        payload.query, concepts, {**catalog, "interview_rows": lookup.corpus.scanned},
+                        TRAINING_DATABASE_TOOLS, lookup.invoke, config, **history,
                     )
                 except ValueError:
                     pass
+
+        expansion = None
+        if config and not lookup.queries and (has_interviews or history):
+            try:
+                expansion = self.model.interpret_query(payload.query, [], config, **history)
+                expansion.concept_ids = []
+            except ValueError:
+                pass
 
         matches = lookup.candidates()
         if matches:
             lexical, _ = self._rank_cases(normalize_term(payload.query), payload.top_k)
             matched_ids = {card["id"] for card in matches}
             matches = (matches + [card for card in lexical if card["id"] not in matched_ids])[:payload.top_k]
+        elif expansion and expansion.search_phrases:
+            matches, _ = self._rank_cases(normalize_term(payload.query), payload.top_k, expansion)
         else:
             matches = self.search(payload)
+        if not matches and history and not (expansion and expansion.search_phrases) and not lookup.queries:
+            matches, _ = self._rank_cases(normalize_term(payload.history[-1].question), payload.top_k)
         available = self._currently_visible(matches)
         matches = [match for match in matches if (match["id"], match["revision"]) in available]
         case_context = []
@@ -325,11 +342,23 @@ class TrainingService:
             evidence.update(self._evidence_from_case(document))
         if case_context:
             lookup.trace.append({"action": "context", "count": len(case_context)})
+        if has_interviews:
+            queries = [payload.query, *sorted(lookup.queries)]
+            if expansion and expansion.search_phrases:
+                queries.extend(expansion.search_phrases)
+            elif history and not lookup.queries:
+                queries.append(payload.history[-1].question)
+            interviews = lookup.corpus.search(queries, min(payload.top_k, 5))
+            evidence.update(interviews)
+            lookup.trace.extend([
+                {"action": "interview_scan", "count": lookup.corpus.scanned},
+                {"action": "interview_context", "count": len(interviews)},
+            ])
         try:
             if config is None:
                 raise ValueError("强模型未配置")
             result = self.model.answer(
-                payload.query, self._model_evidence(evidence), config, cases=case_context, language=language,
+                payload.query, self._model_evidence(evidence), config, cases=case_context, language=language, **history,
             )
             claims = []
             for claim in result.claims:

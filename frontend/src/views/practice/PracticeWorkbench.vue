@@ -4,6 +4,7 @@
       <h1>典范实践工作台</h1>
       <p class="practice-muted">从教育叙事选取事件、为字段添加原文引证，再复核发布到教师研习。</p>
     </header>
+    <TrainingConversation />
     <p v-if="error" class="practice-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="practice-status" role="status">{{ notice }}</p>
     <div class="practice-grid">
@@ -204,6 +205,7 @@ import {
   type FieldName, type PracticeCase, type SourceSpan
 } from "../../types/practice";
 import "./practice.css";
+import TrainingConversation from "../training/TrainingConversation.vue";
 
 const route = useRoute();
 const keyword = ref("");

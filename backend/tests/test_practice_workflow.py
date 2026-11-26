@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import practice as routes
 from app.api.routes import research_resources as resource_routes
 from app.db.base import Base
+from app.db.models import CorpusDataset, CorpusRecord
 from app.db.research_models import ResearchResource
 from app.engines.practice import engine as practice_engine
 from app.main import app
@@ -102,6 +103,56 @@ def workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = TestClient(app)
     yield client, factory, model
     engine.dispose()
+
+
+def test_followup_scans_interviews_and_cites_the_original_record(workflow, monkeypatch):
+    client, factory, model = workflow
+    quote = "遇到课堂沉默时，我让每名学生先写一个想法，再两人交换。"
+    with factory.begin() as session:
+        for kind in ("analysis", "import"):
+            session.add(CorpusDataset(
+                id=f"educator-interviews-{kind}", name=kind, data_kind=kind, domain="education",
+                file_name=f"interviews-{kind}.csv",
+            ))
+        session.add(CorpusDataset(id="other", name="Other", data_kind="import", domain="education"))
+        session.flush()
+        session.add_all([
+            CorpusRecord(dataset_id="educator-interviews-analysis", text=quote),
+            CorpusRecord(dataset_id="other", text="课堂沉默是课堂沉默课堂沉默课堂沉默。"),
+            *[
+                CorpusRecord(dataset_id="educator-interviews-import", text=f"我在学校的成长回忆共有 {index} 节。")
+                for index in range(80)
+            ],
+            CorpusRecord(dataset_id="educator-interviews-import", text=quote),
+        ])
+
+    history = [{"question": "怎样了解课堂沉默？", "answer": "先观察哪些环节学生没有回应。"}]
+
+    def expand(query, concepts, config, *, history):
+        assert query == "下一步怎么试？"
+        assert history[0]["question"] == "怎样了解课堂沉默？"
+        return CaseQueryExpansion(search_phrases=["课堂沉默"])
+
+    def reply(query, evidence, config, *, cases, language, history):
+        assert not cases
+        assert history[0]["answer"] == "先观察哪些环节学生没有回应。"
+        assert [entry["quote"] for entry in evidence] == [quote]
+        assert evidence[0]["source_file"] == "interviews-import.csv"
+        return ModelAnswer(
+            answer="可以先试两人交流。", evidence_fit="indirect",
+            claims=[AnswerClaim(text="访谈记录了先独立想，再两人交流的做法。", evidence_ids=[evidence[0]["id"]])],
+        )
+
+    monkeypatch.setattr(model, "interpret_query", expand)
+    monkeypatch.setattr(model, "answer", reply)
+    response = client.post("/api/training/answers", json={"query": "下一步怎么试？", "history": history})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["matches"] == []
+    assert data["claims"][0]["evidence"][0]["kind"] == "interview"
+    assert data["lookup_trace"] == [
+        {"action": "interview_scan", "count": 82}, {"action": "interview_context", "count": 1},
+    ]
 
 
 def import_source(client, name="样例甲", access="internal", lines=None):
@@ -490,7 +541,7 @@ def test_deepseek_query_interpretation_requests_json_output(monkeypatch):
         assert request.url.path == "/v1/chat/completions"
         assert body["response_format"] == {"type": "json_object"}
         assert body["thinking"] == {"type": "disabled"}
-        assert json.loads(body["messages"][1]["content"]) == {"query": "没人接话", "concepts": []}
+        assert json.loads(body["messages"][1]["content"]) == {"query": "没人接话", "concepts": [], "history": []}
         return httpx.Response(200, json={"choices": [{
             "message": {"content": '{"concept_ids":[],"search_phrases":["课堂讨论"]}'},
             "finish_reason": "stop",
@@ -552,7 +603,7 @@ def test_deepseek_uses_case_graph_and_original_evidence(workflow, monkeypatch):
         requests.append(body)
         if len(requests) == 1:
             assert {tool["function"]["name"] for tool in body["tools"]} == {
-                "browse_published_cases", "search_published_cases", "find_related_cases", "get_case_evidence",
+                "browse_published_cases", "search_published_cases", "find_related_cases", "get_case_evidence", "search_interviews",
             }
             catalog = json.loads(body["messages"][1]["content"])["case_catalog"]["cases"]
             assert {card["id"] for card in catalog} == {primary["case_id"], related["case_id"]}

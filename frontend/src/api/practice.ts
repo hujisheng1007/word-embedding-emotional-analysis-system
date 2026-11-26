@@ -1,7 +1,7 @@
 import { request } from "./client";
 import type {
   CaseCard, CaseContent, CaseEntry, CaseGraphData, Concept, ConceptKind, ExtractionRun,
-  LocatedEvidence, PracticeCase, PublishedCase, TrainingAnswer
+  LocatedEvidence, PracticeCase, PublishedCase, TrainingAnswer, TrainingTurn
 } from "../types/practice";
 
 const id = encodeURIComponent;
@@ -52,5 +52,5 @@ export const caseGraph = (caseId: string, revision?: number) =>
   request<CaseGraphData>(training + "/" + id(caseId) + "/graph" + versionQuery(revision));
 export const locateEvidence = (caseId: string, revision: number, evidenceId: string) =>
   request<LocatedEvidence>(training + "/" + id(caseId) + "/evidence/" + id(evidenceId) + versionQuery(revision));
-export const ask = (query: string, top_k = 8) =>
-  request<TrainingAnswer>("/training/answers", json("POST", { query, top_k }));
+export const ask = (query: string, history: TrainingTurn[], top_k = 8) =>
+  request<TrainingAnswer>("/training/answers", json("POST", { query, top_k, history }));

@@ -159,11 +159,22 @@ export interface CaseGraphData {
 export type LocatedEvidence = Evidence & { field: FieldName; source: SourceInfo };
 
 export interface AnswerEvidence extends Evidence {
+  kind?: "case";
   case_id: string;
   revision: number;
   case_title: string;
   source_title: string;
   field: FieldName;
+}
+
+export interface InterviewEvidence {
+  kind: "interview";
+  id: string;
+  quote: string;
+  source_title: string;
+  source_file: string;
+  locator_type: "corpus_record";
+  locator_value: string;
 }
 
 export interface TrainingAnswer {
@@ -174,10 +185,16 @@ export interface TrainingAnswer {
   evidence_fit?: "direct" | "indirect" | "none";
   next_step?: string;
   clarifying_question?: string;
-  claims: { text: string; evidence: AnswerEvidence[] }[];
+  model?: { model: string; provider?: string };
+  claims: { text: string; evidence: (AnswerEvidence | InterviewEvidence)[] }[];
   reflection_questions: string[];
   matches: CaseCard[];
-  lookup_trace?: { action: "catalog" | "search" | "graph" | "evidence" | "context"; count: number }[];
+  lookup_trace?: { action: "catalog" | "search" | "graph" | "evidence" | "context" | "interview_scan" | "interview_context"; count: number }[];
+}
+
+export interface TrainingTurn {
+  question: string;
+  answer: string;
 }
 
 export function blankContent(title = ""): CaseContent {

@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from app.schemas.practice import PublishedCaseCatalog, PublishedCaseLookup, PublishedCaseReference
 from app.services.practice_service import PracticeNotFound, normalize_term
+from app.services.training_corpus import TrainingCorpus
 
 if TYPE_CHECKING:
     from app.services.training_service import TrainingService
@@ -20,6 +21,7 @@ TRAINING_DATABASE_TOOLS = [
     _tool("search_published_cases", "按短语检索当前已发布的教学案例，返回问题、策略、案例 ID 和版本。", PublishedCaseLookup),
     _tool("find_related_cases", "沿案例图谱查同一教学问题的其他已发布案例。使用此前返回的案例 ID 和版本。", PublishedCaseReference),
     _tool("get_case_evidence", "取案例字段的逐字引文、证据 ID、来源和原文定位。使用此前返回的案例 ID 和版本。", PublishedCaseReference),
+    _tool("search_interviews", "检索数据库中的教育家访谈原文，返回带记录编号的逐字引文。使用聚焦的中文检索短语。", PublishedCaseLookup),
 ]
 
 
@@ -31,6 +33,8 @@ class TrainingDatabaseLookup:
         self.catalog_cards: dict[tuple[str, int], dict] = {}
         self.evidence_cases: dict[tuple[str, int], None] = {}
         self.trace: list[dict] = []
+        self.corpus = TrainingCorpus(training.practice.factory)
+        self.queries: set[str] = set()
 
     def invoke(self, name: str, arguments: str) -> dict:
         try:
@@ -38,6 +42,10 @@ class TrainingDatabaseLookup:
                 return self.catalog(PublishedCaseCatalog.model_validate_json(arguments))
             if name == "search_published_cases":
                 return self._search(PublishedCaseLookup.model_validate_json(arguments))
+            if name == "search_interviews":
+                request = PublishedCaseLookup.model_validate_json(arguments)
+                self.queries.update(request.queries)
+                return {"citations": list(self.corpus.search(request.queries, min(request.limit, 5)).values())}
             if name not in {"find_related_cases", "get_case_evidence"}:
                 return {"error": "未知研习查询工具"}
             reference = PublishedCaseReference.model_validate_json(arguments)
@@ -71,6 +79,7 @@ class TrainingDatabaseLookup:
 
     def _search(self, request: PublishedCaseLookup) -> dict:
         matched: dict[tuple[str, int], dict] = {}
+        self.queries.update(request.queries)
         for query in dict.fromkeys(normalize_term(phrase) for phrase in request.queries):
             cards, _ = self.training._rank_cases(query, request.limit)
             for card in cards:

@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from app.schemas.practice import (
     CaseEvaluation, CaseSearch, CreateCase, NewConcept, PublishCase, SaveCase,
-    SourceSelection, VersionedAction,
+    SourceSelection, TrainingQuestion, VersionedAction,
 )
 from app.services.practice_extraction_service import PracticeExtractionService
 from app.services.practice_service import PracticeConflict, PracticeNotFound, PracticeSchemaNotReady, PracticeService
@@ -151,7 +151,7 @@ def training_evidence(case_id: str, evidence_id: str, revision: int = Query(ge=1
 
 
 @training_router.post("/answers")
-def answer(payload: CaseSearch):
+def answer(payload: TrainingQuestion):
     with translate_errors():
         return training.answer(payload)
 

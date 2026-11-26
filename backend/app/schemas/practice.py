@@ -110,6 +110,15 @@ class CaseSearch(PracticeInput):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
+class TrainingTurn(PracticeInput):
+    question: str = Field(min_length=1, max_length=1000)
+    answer: str = Field(min_length=1, max_length=1400)
+
+
+class TrainingQuestion(CaseSearch):
+    history: list[TrainingTurn] = Field(default_factory=list, max_length=6)
+
+
 class CaseQueryExpansion(PracticeInput):
     concept_ids: list[Identifier] = Field(default_factory=list, max_length=4)
     search_phrases: list[Annotated[str, Field(min_length=2, max_length=60)]] = Field(
