@@ -138,6 +138,7 @@ export interface CaseCard {
   applicability: string;
   score?: number;
   matched_concepts?: string[];
+  match_method?: "lexical" | "semantic" | "graph";
 }
 
 export interface GraphNode {
@@ -168,8 +169,15 @@ export interface AnswerEvidence extends Evidence {
 export interface TrainingAnswer {
   mode: "grounded" | "evidence" | "insufficient";
   message: string;
+  language?: "zh" | "en";
+  answer?: string;
+  evidence_fit?: "direct" | "indirect" | "none";
+  next_step?: string;
+  clarifying_question?: string;
   claims: { text: string; evidence: AnswerEvidence[] }[];
   reflection_questions: string[];
+  matches: CaseCard[];
+  lookup_trace?: { action: "catalog" | "search" | "graph" | "evidence" | "context"; count: number }[];
 }
 
 export function blankContent(title = ""): CaseContent {

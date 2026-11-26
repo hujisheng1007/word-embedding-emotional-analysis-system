@@ -15,11 +15,12 @@ from app.db.base import Base
 from app.db.research_models import ResearchResource
 from app.engines.practice import engine as practice_engine
 from app.main import app
-from app.schemas.practice import AnswerClaim, ExtractionOutput, ModelAnswer
+from app.schemas.practice import AnswerClaim, CaseQueryExpansion, ExtractionOutput, ModelAnswer
 from app.services.practice_extraction_service import PracticeExtractionService
 from app.services.practice_service import PracticeService
 from app.services.research_resource_service import ResearchResourceService
 from app.services.training_service import TrainingService
+from app.utils.evidence import resolve_quote
 
 CONTEXT = "𠮷老师负责组织小组讨论。"
 PROBLEM = "小组讨论时只有两名学生发言。"
@@ -30,26 +31,50 @@ class ModelDouble:
     def __init__(self):
         self.extract_calls = 0
         self.invalid_extraction = False
+        self.incorrect_model_offsets = False
         self.invalid_answer = False
+        self.query_calls = []
+        self.expansion = CaseQueryExpansion()
+        self.interpretation_fails = False
+        self.suggested_concepts = []
+        self.extraction_catalog = []
 
     def configuration(self):
         return {"profile_id": "test", "model": "test-model"}
 
-    def extract(self, spans, config):
+    def interpret_query(self, query, concepts, config):
+        self.query_calls.append((query, concepts))
+        if self.interpretation_fails:
+            raise ValueError("模型请求失败")
+        return self.expansion.model_copy()
+
+    def extract(self, spans, config, *, concepts=None):
         self.extract_calls += 1
+        self.extraction_catalog = concepts or []
         snippets = [span["text"] for span in spans]
         if self.invalid_extraction:
             snippets[-1] = "材料里没有的句子"
+        content = make_content(
+            [span["segment_id"] for span in spans], snippets, concept_ids=self.suggested_concepts,
+        )
+        if self.incorrect_model_offsets:
+            content["fields"]["context"]["evidence"][0].update(start_char=1, end_char=2)
         return ExtractionOutput.model_validate({
             "candidates": [{
                 "segment_ids": [span["segment_id"] for span in spans],
-                "content": make_content([span["segment_id"] for span in spans], snippets),
+                "content": content,
             }]
         })
 
-    def answer(self, query, evidence, config):
+    def answer(self, query, evidence, config, *, cases, language):
+        if not evidence:
+            return ModelAnswer(
+                answer="The published cases do not establish a reason.", evidence_fit="none",
+                claims=[], next_step="Ask a student what happened the last time they stopped working.",
+            )
         strategy = next(item for item in evidence if item["field"] == "strategy")
         return ModelAnswer(
+            answer="相关案例提供了一种课堂策略。", evidence_fit="direct",
             claims=[AnswerClaim(
                 text=strategy["quote"],
                 evidence_ids=["invented"] if self.invalid_answer else [strategy["id"]],
@@ -239,9 +264,145 @@ def test_graph_search_answer_and_permissions_use_published_cases(workflow):
     assert client.post("/api/training/answers", json={"query": "火山熔岩"}).json()["mode"] == "insufficient"
 
 
+def test_semantic_search_recovers_paraphrase_and_answer_reuses_matches(workflow):
+    client, _, model = workflow
+    concept = client.post("/api/practice/concepts", json={
+        "kind": "problem", "label": "学生参与不均", "aliases": ["发言机会不均"]
+    }).json()
+    private_concept = client.post("/api/practice/concepts", json={
+        "kind": "problem", "label": "仅供草稿复核"
+    }).json()
+    resource_id, segments = import_source(client)
+    draft = create_case(client, resource_id, segments, concept_ids=[concept["id"]])
+    published = review_and_publish(client, draft)
+    create_case(client, resource_id, segments, concept_ids=[private_concept["id"]])
+
+    natural_question = "课堂交流总是那几个人开口，怎样让其他孩子也愿意表达"
+    model.expansion = CaseQueryExpansion(concept_ids=[concept["id"], private_concept["id"]])
+    keyword_hits = client.post("/api/training/cases/search", json={"query": "发言机会不均"}).json()
+    assert keyword_hits[0]["match_method"] == "lexical"
+    assert not model.query_calls
+
+    hits = client.post("/api/training/cases/search", json={"query": natural_question}).json()
+    assert [case["id"] for case in hits] == [published["case_id"]]
+    assert hits[0]["match_method"] == "semantic"
+    assert hits[0]["matched_concepts"] == ["学生参与不均"]
+    assert [item["id"] for item in model.query_calls[0][1]] == [concept["id"]]
+
+    answer = client.post("/api/training/answers", json={"query": natural_question}).json()
+    assert answer["matches"] == hits
+    assert answer["mode"] == "grounded"
+    assert answer["claims"][0]["evidence"][0]["case_id"] == published["case_id"]
+    assert len(model.query_calls) == 2
+
+
+def test_semantic_rewrite_finds_untagged_case_and_preserves_lexical_fallback(workflow):
+    client, _, model = workflow
+    resource_id, segments = import_source(client)
+    published = review_and_publish(client, create_case(client, resource_id, segments))
+    model.expansion = CaseQueryExpansion(search_phrases=["小组讨论"])
+
+    query = {"query": "课堂交流总是那几个人开口，怎样让其他孩子也愿意表达"}
+    hits = client.post("/api/training/cases/search", json=query).json()
+    assert [case["id"] for case in hits] == [published["case_id"]]
+    assert hits[0]["match_method"] == "semantic"
+
+    model.interpretation_fails = True
+    assert client.post("/api/training/cases/search", json=query).json() == []
+    lexical_query = {"query": "两名学生发言"}
+    fallback = client.post("/api/training/cases/search", json=lexical_query).json()
+    assert fallback[0]["id"] == published["case_id"]
+    assert fallback[0]["match_method"] == "lexical"
+
+
+def test_answer_keeps_a_useful_next_step_when_the_library_has_no_evidence(workflow):
+    client, _, _ = workflow
+    result = client.post("/api/training/answers", json={"query": "why the students don't like study?"}).json()
+    assert result["language"] == "en"
+    assert result["mode"] == "insufficient"
+    assert result["evidence_fit"] == "none"
+    assert result["claims"] == []
+    assert result["answer"]
+    assert result["next_step"]
+
+
+def test_indirect_evidence_can_be_shown_with_a_qualified_answer(workflow, monkeypatch):
+    client, _, model = workflow
+    resource_id, segments = import_source(client)
+    published = review_and_publish(client, create_case(client, resource_id, segments))
+    model.expansion = CaseQueryExpansion(search_phrases=["小组讨论"])
+
+    def answer(query, evidence, config, *, cases, language):
+        assert query == "why the students don't like study?"
+        assert language == "en"
+        assert cases[0]["case_id"] == published["case_id"]
+        assert cases[0]["fields"]["outcome"]["state"] == "not_stated"
+        problem = next(item for item in evidence if item["field"] == "problem")
+        return ModelAnswer(
+            answer="The case shows low participation in a discussion. The students' reasons are still unclear.",
+            evidence_fit="indirect",
+            claims=[AnswerClaim(text="Only two students spoke.", evidence_ids=[problem["id"]])],
+            next_step="Ask a few students privately what happened when they last stopped working.",
+            clarifying_question="Do they also avoid independent work, or mainly stay quiet in discussions?",
+        )
+
+    monkeypatch.setattr(model, "answer", answer)
+    response = client.post("/api/training/answers", json={"query": "why the students don't like study?"})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["language"] == "en"
+    assert result["evidence_fit"] == "indirect"
+    assert "reasons are still unclear" in result["answer"]
+    assert result["next_step"] and result["clarifying_question"]
+    assert [quote["case_id"] for claim in result["claims"] for quote in claim["evidence"]] == [published["case_id"]]
+
+
+def test_search_finds_source_quotes_beyond_the_first_catalog_page(workflow):
+    client, _, _ = workflow
+    strategy = "老师将彩色河流模型交给各组做示范。"
+    resource_id, segments = import_source(client, lines=[CONTEXT, PROBLEM, strategy])
+    content = make_content(segments, [CONTEXT, PROBLEM, strategy])
+    content["fields"]["strategy"]["summary"] = "教师使用教具展示做法。"
+    draft = client.post("/api/practice/cases", json={
+        "resource_id": resource_id, "segment_ids": segments, "content": content,
+    }).json()
+    published = review_and_publish(client, draft)
+    later_id, later_segments = import_source(client, "后来发布的案例")
+    for index in range(12):
+        review_and_publish(client, create_case(client, later_id, later_segments, title=f"讨论案例 {index}"))
+
+    first_page = client.get("/api/training/cases", params={"limit": 12}).json()
+    assert published["case_id"] not in [card["id"] for card in first_page]
+    result = client.post("/api/training/cases/search", json={"query": "彩色河流模型"}).json()
+    assert [card["id"] for card in result] == [published["case_id"]]
+
+
+def test_english_question_retries_a_chinese_model_reply(monkeypatch):
+    model = practice_engine.PracticeModel()
+    answers = iter([
+        ModelAnswer(answer="现有证据无法说明原因。", evidence_fit="none", claims=[]),
+        ModelAnswer(answer="The cases do not establish a cause.", evidence_fit="none", claims=[]),
+    ])
+    prompts = []
+
+    def complete(prompt, data, schema, config):
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr(model, "_complete", complete)
+    reply = model.answer("Why do some students avoid studying?", [], {}, cases=[], language="en")
+    assert reply.answer == "The cases do not establish a cause."
+    assert len(prompts) == 2
+    assert prompts[0].startswith("Use English")
+
+
 def test_extraction_persists_failure_retries_and_accepts_candidate_once(workflow):
     client, _, model = workflow
     resource_id, segment_ids = import_source(client)
+    concept = client.post("/api/practice/concepts", json={
+        "kind": "problem", "label": "学生参与不均"
+    }).json()
+    model.suggested_concepts = [concept["id"], "unknown-concept"]
     selection = {"resource_id": resource_id, "segment_ids": segment_ids}
     model.invalid_extraction = True
     run = client.post("/api/practice/extractions", json=selection).json()
@@ -250,14 +411,20 @@ def test_extraction_persists_failure_retries_and_accepts_candidate_once(workflow
     assert failed["status"] == "failed"
     assert "引文" in failed["error"]
     assert model.extract_calls == 1
+    assert [item["id"] for item in model.extraction_catalog] == [concept["id"]]
+    assert client.post("/api/practice/extractions", json=selection).json()["id"] == run["id"]
+    client.post("/api/practice/concepts", json={"kind": "problem", "label": "后来新增概念"})
 
     model.invalid_extraction = False
+    model.incorrect_model_offsets = True
     assert client.post(url + "/retry").status_code == 202
     succeeded = client.get(url).json()
     assert succeeded["status"] == "succeeded" and succeeded["attempt"] == 2
     assert len(succeeded["candidates"]) == 1
-    again = client.post("/api/practice/extractions", json=selection).json()
-    assert again["id"] == run["id"]
+    assert [item["id"] for item in model.extraction_catalog] == [concept["id"]]
+    assert succeeded["candidates"][0]["content"]["concept_ids"] == [concept["id"]]
+    quote = succeeded["candidates"][0]["content"]["fields"]["context"]["evidence"][0]
+    assert (quote["start_char"], quote["end_char"]) == (0, len(CONTEXT))
     assert model.extract_calls == 2
 
     accept = url + "/candidates/0/accept"
@@ -265,7 +432,17 @@ def test_extraction_persists_failure_retries_and_accepts_candidate_once(workflow
     second = client.post(accept).json()
     assert first["case_id"] == second["case_id"]
     assert first["published_revision"] is None
+    assert [item["id"] for item in first["concepts"]] == [concept["id"]]
+    assert "extraction_concepts" not in first["source"]
     assert client.get("/api/training/cases").json() == []
+
+
+def test_relocation_requires_one_literal_match_for_wrong_offsets():
+    source = "老师请同学提问。老师请同学提问。"
+    with pytest.raises(ValueError, match="重复位置不明确"):
+        resolve_quote(source, "同学提问", 0, 2, relocate_invalid_offsets=True)
+    with pytest.raises(ValueError, match="字符范围不一致"):
+        resolve_quote("老师请同学提问。", "同学提问", 0, 2)
 
 
 def test_model_client_sends_reviewable_inputs_and_detects_endpoint_change(monkeypatch):
@@ -298,3 +475,130 @@ def test_model_client_sends_reviewable_inputs_and_detects_endpoint_change(monkey
     with pytest.raises(ValueError, match="模型配置已经变化"):
         model.extract([], config)
     assert seen == ["/v1/chat/completions"]
+
+
+def test_deepseek_query_interpretation_requests_json_output(monkeypatch):
+    runtime = SimpleNamespace(
+        enabled=True, configured=True, profile_id="deepseek-chat", provider="deepseek",
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/v1", api_key="test-key",
+    )
+    profile = SimpleNamespace(get_runtime_config=lambda: runtime)
+    monkeypatch.setattr(practice_engine, "get_foundation_profile_service", lambda: profile)
+
+    def complete(request):
+        body = json.loads(request.content)
+        assert request.url.path == "/v1/chat/completions"
+        assert body["response_format"] == {"type": "json_object"}
+        assert body["thinking"] == {"type": "disabled"}
+        assert json.loads(body["messages"][1]["content"]) == {"query": "没人接话", "concepts": []}
+        return httpx.Response(200, json={"choices": [{
+            "message": {"content": '{"concept_ids":[],"search_phrases":["课堂讨论"]}'},
+            "finish_reason": "stop",
+        }]})
+
+    client = httpx.Client
+    transport = httpx.MockTransport(complete)
+    monkeypatch.setattr(practice_engine.httpx, "Client", lambda **kwargs: client(transport=transport, **kwargs))
+    model = practice_engine.PracticeModel()
+    assert model.interpret_query("没人接话", [], model.configuration()).search_phrases == ["课堂讨论"]
+
+
+def test_deepseek_uses_case_graph_and_original_evidence(workflow, monkeypatch):
+    client, _, _ = workflow
+    concept = client.post("/api/practice/concepts", json={
+        "kind": "problem", "label": "学生参与不均"
+    }).json()
+    source_id, segments = import_source(client)
+    primary = review_and_publish(client, create_case(
+        client, source_id, segments, title="同伴发言分配", concept_ids=[concept["id"]],
+    ))
+    alternative = "教师先让每个人写下一个观点，再按顺序分享。"
+    source_id, segments = import_source(client, "样例乙", lines=[CONTEXT, PROBLEM, alternative])
+    related = review_and_publish(client, create_case(
+        client, source_id, segments, title="先写后说", concept_ids=[concept["id"]],
+        snippets=[CONTEXT, PROBLEM, alternative],
+    ))
+    draft = create_case(client, source_id, segments, title="只在研究端可见",
+                        concept_ids=[concept["id"]], snippets=[CONTEXT, PROBLEM, alternative])
+
+    runtime = SimpleNamespace(
+        enabled=True, configured=True, profile_id="deepseek-chat", provider="deepseek",
+        model_name="deepseek-flash", base_url="https://api.deepseek.com/v1", api_key="test-key",
+    )
+    profile = SimpleNamespace(get_runtime_config=lambda: runtime)
+    monkeypatch.setattr(practice_engine, "get_foundation_profile_service", lambda: profile)
+    monkeypatch.setattr(routes.training, "model", practice_engine.PracticeModel())
+    requests = []
+
+    def tool_call(call_id, name, arguments):
+        return {"id": call_id, "type": "function", "function": {
+            "name": name, "arguments": json.dumps(arguments, ensure_ascii=False),
+        }}
+
+    def tool_result(body, call_id):
+        message = next(item for item in body["messages"] if item.get("tool_call_id") == call_id)
+        return json.loads(message["content"])
+
+    def chat_reply(content, calls=None):
+        message = {"role": "assistant", "content": content}
+        if calls is not None:
+            message["tool_calls"] = calls
+        return httpx.Response(200, json={"choices": [{
+            "message": message, "finish_reason": "tool_calls" if calls else "stop",
+        }]})
+
+    def complete(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        if len(requests) == 1:
+            assert {tool["function"]["name"] for tool in body["tools"]} == {
+                "browse_published_cases", "search_published_cases", "find_related_cases", "get_case_evidence",
+            }
+            catalog = json.loads(body["messages"][1]["content"])["case_catalog"]["cases"]
+            assert {card["id"] for card in catalog} == {primary["case_id"], related["case_id"]}
+            return chat_reply(None, [tool_call("search", "search_published_cases", {
+                "queries": ["同伴发言分配"], "limit": 1,
+            })])
+        if len(requests) == 2:
+            cards = tool_result(body, "search")["cases"]
+            assert [item["id"] for item in cards] == [primary["case_id"]]
+            return chat_reply(None, [
+                tool_call("graph", "find_related_cases", {"case_id": cards[0]["id"], "revision": cards[0]["revision"]}),
+                tool_call("draft", "get_case_evidence", {"case_id": draft["case_id"], "revision": draft["revision"]}),
+            ])
+        if len(requests) == 3:
+            cards = tool_result(body, "graph")["cases"]
+            assert [item["id"] for item in cards] == [related["case_id"]]
+            assert "error" in tool_result(body, "draft")
+            return chat_reply(None, [tool_call("evidence", "get_case_evidence", {
+                "case_id": cards[0]["id"], "revision": cards[0]["revision"],
+            })])
+        if len(requests) == 4:
+            citations = tool_result(body, "evidence")["citations"]
+            strategy = next(entry for entry in citations if entry["field"] == "strategy")
+            assert strategy["quote"] == alternative and strategy["source_title"] == "样例乙"
+            return chat_reply("")
+        assert len(requests) == 5 and body["response_format"] == {"type": "json_object"}
+        context = json.loads(body["messages"][1]["content"])
+        assert [item["case_id"] for item in context["cases"]] == [related["case_id"], primary["case_id"]]
+        assert context["cases"][0]["fields"]["strategy"]["summary"] == alternative
+        evidence = context["evidence"]
+        strategy = next(entry for entry in evidence if entry["field"] == "strategy")
+        return chat_reply(json.dumps({
+            "answer": "同类案例提供了一种让更多学生表达的做法。",
+            "evidence_fit": "direct",
+            "claims": [{"text": strategy["quote"], "evidence_ids": [strategy["id"]]}],
+        }))
+
+    http_client = httpx.Client
+    transport = httpx.MockTransport(complete)
+    monkeypatch.setattr(practice_engine.httpx, "Client", lambda **kw: http_client(transport=transport, **kw))
+    response = client.post("/api/training/answers", json={"query": "怎样让更多孩子开口，想看看别的做法？"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["mode"] == "grounded"
+    assert [step["action"] for step in data["lookup_trace"]] == ["catalog", "search", "graph", "evidence", "context"]
+    assert data["matches"][0]["match_method"] == "graph"
+    citation = data["claims"][0]["evidence"][0]
+    assert citation["case_id"] == related["case_id"]
+    assert citation["quote"] == alternative

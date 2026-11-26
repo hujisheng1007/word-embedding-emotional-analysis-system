@@ -110,16 +110,48 @@ class CaseSearch(PracticeInput):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
+class CaseQueryExpansion(PracticeInput):
+    concept_ids: list[Identifier] = Field(default_factory=list, max_length=4)
+    search_phrases: list[Annotated[str, Field(min_length=2, max_length=60)]] = Field(
+        default_factory=list, max_length=5
+    )
+
+
+class PublishedCaseLookup(PracticeInput):
+    queries: list[Annotated[str, Field(min_length=2, max_length=100)]] = Field(min_length=1, max_length=4)
+    limit: int = Field(default=4, ge=1, le=5)
+
+
+class PublishedCaseCatalog(PracticeInput):
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=12, ge=1, le=20)
+
+
+class PublishedCaseReference(PracticeInput):
+    case_id: Identifier
+    revision: int = Field(ge=1)
+
+
 class AnswerClaim(PracticeInput):
     text: str = Field(min_length=1, max_length=1200)
     evidence_ids: list[Identifier] = Field(min_length=1, max_length=8)
 
 
 class ModelAnswer(PracticeInput):
+    answer: str = Field(min_length=1, max_length=900)
+    evidence_fit: Literal["direct", "indirect", "none"]
     claims: list[AnswerClaim] = Field(max_length=8)
+    next_step: str = Field(default="", max_length=400)
+    clarifying_question: str = Field(default="", max_length=250)
     reflection_questions: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(
         default_factory=list, max_length=4
     )
+
+    @model_validator(mode="after")
+    def evidence_fit_matches_claims(self) -> "ModelAnswer":
+        if (self.evidence_fit == "none") != (not self.claims):
+            raise ValueError("证据适配程度须与引证内容一致")
+        return self
 
 
 class EvaluationCase(PracticeInput):

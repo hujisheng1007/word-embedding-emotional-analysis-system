@@ -19,9 +19,24 @@
     <p v-if="busy" class="practice-status" role="status">{{ busy }}</p>
 
     <section v-if="result" class="practice-box" aria-label="案例问答">
-      <h2>{{ result.mode === "grounded" ? "案例回答" : "原文证据" }}</h2>
-      <p v-if="result.message" class="practice-status">{{ result.message }}</p>
-      <ul class="practice-list">
+      <h2>{{ answerLabels.title }}</h2>
+      <p v-if="result.answer || result.message" class="answer-copy" :lang="result.language">
+        {{ result.answer || result.message }}
+      </p>
+      <div v-if="result.next_step || result.clarifying_question" class="answer-actions" :lang="result.language">
+        <div v-if="result.next_step">
+          <h3>{{ answerLabels.nextStep }}</h3>
+          <p>{{ result.next_step }}</p>
+        </div>
+        <div v-if="result.clarifying_question">
+          <h3>{{ answerLabels.question }}</h3>
+          <p>{{ result.clarifying_question }}</p>
+        </div>
+      </div>
+      <h3 v-if="result.claims.length" class="reflections">
+        {{ result.evidence_fit === "indirect" ? answerLabels.relatedEvidence : answerLabels.caseEvidence }}
+      </h3>
+      <ul v-if="result.claims.length" class="practice-list">
         <li v-for="(claim, index) in result.claims" :key="index">
           <p>{{ claim.text }}</p>
           <ul class="practice-list">
@@ -34,18 +49,26 @@
         </li>
       </ul>
       <template v-if="result.reflection_questions.length">
-        <h3 class="reflections">实践反思</h3>
+        <h3 class="reflections">{{ answerLabels.reflection }}</h3>
         <ul><li v-for="question in result.reflection_questions" :key="question">{{ question }}</li></ul>
       </template>
+      <details v-if="result.lookup_trace?.length" class="reflections">
+        <summary>{{ answerLabels.trace }}</summary>
+        <ul>
+          <li v-for="(step, index) in result.lookup_trace" :key="index">
+            {{ answerLabels.lookup[step.action] }} ({{ step.count }})
+          </li>
+        </ul>
+      </details>
     </section>
 
-    <section class="practice-box">
+    <section v-if="!result || cards.length" class="practice-box">
       <div class="practice-row case-heading">
         <h2>{{ searched ? "匹配到的案例" : "已发布案例" }}</h2>
         <small v-if="cards.length > 1" class="practice-muted">最多勾选两条并排比较</small>
       </div>
       <p v-if="loaded && !cards.length" class="practice-muted">
-        {{ searched ? "当前问题未匹配到案例。可补充具体情境或换一种描述。" : "目前还没有可用于研习的已发布案例。" }}
+        {{ searched ? "已发布案例暂缺与这个教学问题相关的证据。" : "目前还没有可用于研习的已发布案例。" }}
       </p>
       <div class="practice-casecards">
         <article v-for="card in cards" :key="card.id" class="practice-casecard">
@@ -55,7 +78,7 @@
           <p><strong>策略</strong>　{{ card.strategy }}</p>
           <p v-if="card.applicability"><strong>适用条件</strong>　{{ card.applicability }}</p>
           <p v-if="searched" class="practice-muted">
-            {{ card.matched_concepts?.length ? "命中概念 " + card.matched_concepts.join("、") : "标题或案例字段匹配" }}
+            {{ matchReason(card) }}
           </p>
           <label v-if="cards.length > 1">
             <input v-model="compared" type="checkbox" :value="card.id" :disabled="compared.length >= 2 && !compared.includes(card.id)">
@@ -103,6 +126,30 @@ const offset = ref(0);
 const error = ref("");
 const busy = ref("");
 const chosen = computed(() => cards.value.filter(card => compared.value.includes(card.id)));
+const answerLabels = computed(() => result.value?.language === "en" ? {
+  title: "Answer", nextStep: "What to check next", question: "One question to clarify",
+  relatedEvidence: "Related case evidence", caseEvidence: "Case evidence", reflection: "Reflection",
+  trace: "Show database lookup", lookup: {
+    catalog: "Catalog records loaded", search: "Published cases found", graph: "Related cases found",
+    evidence: "Citations retrieved", context: "Case records retrieved for this reply",
+  },
+} : {
+  title: "研习回答", nextStep: "建议先核实", question: "需要确认的问题",
+  relatedEvidence: "相关案例依据", caseEvidence: "案例依据", reflection: "实践反思",
+  trace: "查看数据库检索过程", lookup: {
+    catalog: "读取案例目录", search: "检索已发布案例", graph: "沿图谱查找同类案例",
+    evidence: "读取原文引证", context: "读取本次回答所用的案例记录",
+  },
+});
+
+function matchReason(card: CaseCard) {
+  if (card.match_method === "graph") return "来自同类问题的图谱关联";
+  if (card.matched_concepts?.length) {
+    const prefix = card.match_method === "semantic" ? "相关教学问题 " : "命中概念 ";
+    return prefix + card.matched_concepts.join("、");
+  }
+  return card.match_method === "semantic" ? "按问题含义匹配" : "标题或案例字段匹配";
+}
 
 function caseLink(id: string, revision: number, evidence?: string) {
   return { name: "practice-case", params: { id }, query: { revision, evidence } };
@@ -148,8 +195,8 @@ function answer() {
   const question = query.value;
   return perform("正在查找证据并准备回答…", async () => {
     result.value = null;
-    const [matches, response] = await Promise.all([api.searchCases(question), api.ask(question)]);
-    cards.value = matches;
+    const response = await api.ask(question);
+    cards.value = response.matches;
     result.value = response;
     compared.value = [];
     searched.value = true;
@@ -161,6 +208,10 @@ onMounted(() => browse(0));
 
 <style scoped>
 .case-heading { justify-content: space-between; }
+.answer-copy { max-width: 75ch; font-size: 1.05rem; line-height: 1.65; }
+.answer-actions { max-width: 75ch; border-inline-start: 3px solid currentColor; padding-inline-start: 1rem; }
+.answer-actions h3 { margin: 0.9rem 0 0.25rem; }
+.answer-actions p { margin: 0; line-height: 1.6; }
 .reflections { margin-top: 18px; }
 dt { font-weight: 700; margin-top: 9px; }
 dd { margin: 2px 0 0; line-height: 1.6; }

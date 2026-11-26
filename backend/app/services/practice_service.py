@@ -65,7 +65,9 @@ def checked_spans(spans: list[dict], segment_ids: list[str]) -> list[dict]:
     return ordered
 
 
-def normalize_evidence(content: CaseContent, spans: list[dict]) -> None:
+def normalize_evidence(
+    content: CaseContent, spans: list[dict], *, relocate_invalid_offsets: bool = False
+) -> None:
     sources = {span["segment_id"]: span["text"] for span in spans}
     for name, label in FIELD_LABELS.items():
         field = getattr(content.fields, name)
@@ -76,6 +78,7 @@ def normalize_evidence(content: CaseContent, spans: list[dict]) -> None:
                 evidence.start_char, evidence.end_char = resolve_quote(
                     sources[evidence.segment_id], evidence.quote,
                     evidence.start_char, evidence.end_char,
+                    relocate_invalid_offsets=relocate_invalid_offsets,
                 )
             except ValueError as exc:
                 raise ValueError(f"{label}：{exc}") from exc

@@ -52,5 +52,5 @@ export const caseGraph = (caseId: string, revision?: number) =>
   request<CaseGraphData>(training + "/" + id(caseId) + "/graph" + versionQuery(revision));
 export const locateEvidence = (caseId: string, revision: number, evidenceId: string) =>
   request<LocatedEvidence>(training + "/" + id(caseId) + "/evidence/" + id(evidenceId) + versionQuery(revision));
-export const ask = (query: string) =>
-  request<TrainingAnswer>("/training/answers", json("POST", { query }));
+export const ask = (query: string, top_k = 8) =>
+  request<TrainingAnswer>("/training/answers", json("POST", { query, top_k }));

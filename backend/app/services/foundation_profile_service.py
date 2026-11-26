@@ -164,10 +164,10 @@ class FoundationProfileService:
             ),
             FoundationModelProfile(
                 profile_id="deepseek-chat",
-                label="DeepSeek Chat",
+                label="DeepSeek API",
                 provider="deepseek",
                 base_url="https://api.deepseek.com/v1",
-                model_name="deepseek-chat",
+                model_name="deepseek-flash",
                 description="适合在线强模型接入；需要在环境变量中提供 DEEPSEEK_API_KEY。",
                 requires_api_key=True,
                 api_key_env="DEEPSEEK_API_KEY",

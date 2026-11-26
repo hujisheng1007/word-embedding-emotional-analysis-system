@@ -5,8 +5,10 @@ from uuid import uuid4
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.db.practice_models import PracticeExtractionRun, utc_now
-from app.engines.practice.engine import EXTRACTION_PROMPT_VERSION, PracticeModel
+from app.db.practice_models import PracticeConcept, PracticeExtractionRun, utc_now
+from app.engines.practice.engine import (
+    EXTRACTION_PROMPT_VERSION, LEGACY_EXTRACTION_PROMPT_VERSION, PracticeModel,
+)
 from app.schemas.practice import Candidate, SourceSelection
 from app.services.practice_service import (
     PracticeConflict, PracticeNotFound, PracticeService, checked_spans, fingerprint,
@@ -45,6 +47,11 @@ class PracticeExtractionService:
         with self.practice.factory() as session:
             self.practice.check_schema(session)
             source = self.practice.source(session, payload)
+            source["extraction_concepts"] = [
+                self.practice.concept_view(concept) for concept in session.scalars(
+                    select(PracticeConcept).order_by(PracticeConcept.kind, PracticeConcept.label).limit(60)
+                )
+            ]
             config = {**self.model.configuration(), "prompt_version": EXTRACTION_PROMPT_VERSION}
             key = fingerprint([source, config])
             row = session.scalar(select(PracticeExtractionRun).where(PracticeExtractionRun.fingerprint == key))
@@ -120,15 +127,24 @@ class PracticeExtractionService:
             with self.practice.factory() as session:
                 self.practice.require_source(session, resource_id)
             model_config = {key: value for key, value in config.items() if key != "prompt_version"}
-            if config.get("prompt_version") != EXTRACTION_PROMPT_VERSION:
+            prompt_version = config.get("prompt_version")
+            if prompt_version == EXTRACTION_PROMPT_VERSION:
+                concepts = source.get("extraction_concepts", [])
+                output = self.model.extract(source["spans"], model_config, concepts=concepts)
+            elif prompt_version == LEGACY_EXTRACTION_PROMPT_VERSION:
+                concepts = []
+                output = self.model.extract(source["spans"], model_config)
+            else:
                 raise ValueError("抽取提示版本已更新，请提交新任务")
-            output = self.model.extract(source["spans"], model_config)
+            allowed_concepts = {concept["id"] for concept in concepts}
             for candidate in output.candidates:
                 spans = checked_spans(source["spans"], candidate.segment_ids)
-                candidate.content.concept_ids = []
+                candidate.content.concept_ids = list(dict.fromkeys(
+                    concept_id for concept_id in candidate.content.concept_ids if concept_id in allowed_concepts
+                ))
                 candidate.content.interpretation = ""
                 candidate.content.applicability = ""
-                normalize_evidence(candidate.content, spans)
+                normalize_evidence(candidate.content, spans, relocate_invalid_offsets=True)
             result = output.model_dump()
         except Exception as exc:
             status = "failed"
@@ -152,6 +168,7 @@ class PracticeExtractionService:
             self.practice.require_source(session, run.resource_id)
             candidate = Candidate.model_validate(candidates[candidate_index])
             source = json.loads(run.input_json)
+            source.pop("extraction_concepts", None)
             source["spans"] = checked_spans(source["spans"], candidate.segment_ids)
             key = fingerprint(["extraction", run.id, candidate_index])
             return self.practice.create_from_source(session, source, candidate.content, key)

@@ -1,18 +1,15 @@
 import json
+import re
 
 from sqlalchemy import and_, select
 
-from app.db.practice_models import PracticeCase, PracticeCaseConcept, PracticeConcept, PracticeRevision
+from app.db.practice_models import PracticeCase, PracticeCaseConcept, PracticeConcept, PracticeEvidence, PracticeRevision
 from app.db.research_models import ResearchResource
 from app.engines.practice.engine import ANSWER_PROMPT_VERSION, PracticeModel
-from app.schemas.practice import FIELD_LABELS, CaseEvaluation, CaseSearch
+from app.schemas.practice import FIELD_LABELS, CaseEvaluation, CaseQueryExpansion, CaseSearch, PublishedCaseCatalog
 from app.services.knowledge_service import KnowledgeService, _tokens
 from app.services.practice_service import PracticeNotFound, PracticeService, normalize_term
-
-REFLECTIONS = [
-    "你的情境与案例有哪些相同与不同？",
-    "你会选择尝试哪一步，并用什么观察来判断它是否有帮助？",
-]
+from app.services.training_database_lookup import TRAINING_DATABASE_TOOLS, TrainingDatabaseLookup
 
 
 class TrainingService:
@@ -75,36 +72,107 @@ class TrainingService:
             )
             return [self._card(case, revision) for case, revision in rows]
 
-    def search(self, payload: CaseSearch) -> list[dict]:
-        query = normalize_term(payload.query)
+    def _visible_concepts(self):
+        return select(PracticeCaseConcept.revision_id, PracticeConcept).join(
+            PracticeConcept, PracticeCaseConcept.concept_id == PracticeConcept.id
+        ).where(PracticeCaseConcept.revision_id.in_(self._visible().with_only_columns(PracticeRevision.id)))
+
+    def _published_problem_concepts(self, session) -> list[dict]:
+        return [
+            self.practice.concept_view(concept) for concept in session.scalars(
+                select(PracticeConcept)
+                .where(
+                    PracticeConcept.kind == "problem",
+                    PracticeConcept.id.in_(self._visible_concepts().with_only_columns(PracticeConcept.id)),
+                )
+                .order_by(PracticeConcept.id).limit(60)
+            )
+        ]
+
+    def _rank_cases(
+        self, query: str, top_k: int, expansion: CaseQueryExpansion | None = None,
+    ) -> tuple[list[dict], bool]:
         terms = _tokens(query)
         if not terms:
-            return []
+            return [], False
+        selected = set(expansion.concept_ids) if expansion else set()
+        phrases = {
+            term for phrase in (expansion.search_phrases if expansion else [])
+            if (term := normalize_term(phrase)) != query and _tokens(term)
+        }
         scored = []
+        direct_problem_match = False
         with self.practice.factory() as session:
             self.practice.check_schema(session)
-            concept_rows = session.execute(select(PracticeCaseConcept.revision_id, PracticeConcept).join(
-                PracticeConcept, PracticeCaseConcept.concept_id == PracticeConcept.id
-            ).where(PracticeCaseConcept.revision_id.in_(self._visible().with_only_columns(PracticeRevision.id))))
             concepts_by_revision = {}
-            for revision_id, concept in concept_rows:
+            for revision_id, concept in session.execute(self._visible_concepts()):
                 concepts_by_revision.setdefault(revision_id, []).append(concept)
+            quotes_by_revision = {}
+            visible_revisions = self._visible().with_only_columns(PracticeRevision.id)
+            quotes = select(PracticeEvidence.revision_id, PracticeEvidence.field_name, PracticeEvidence.quote).where(
+                PracticeEvidence.revision_id.in_(visible_revisions)
+            )
+            for revision_id, field, quote in session.execute(quotes.execution_options(yield_per=200)):
+                quotes_by_revision.setdefault(revision_id, []).append((field, quote))
             for case, revision in session.execute(self._visible().execution_options(yield_per=100)):
                 data = json.loads(revision.content_json)
-                body = " ".join(field["summary"] for field in data["fields"].values() if field["state"] == "supported")
+                supported_fields = {
+                    name: field["summary"] for name, field in data["fields"].items() if field["state"] == "supported"
+                }
+                quote_text = " ".join(
+                    quote for field, quote in quotes_by_revision.get(revision.id, []) if field in supported_fields
+                )
+                body = " ".join([*supported_fields.values(), quote_text])
                 score = KnowledgeService._score(query, terms, data["title"], body)
+                case_text = normalize_term(data["title"] + " " + body) if phrases else ""
+                semantic_match = any(phrase in case_text for phrase in phrases)
+                if semantic_match:
+                    score += 8
                 matches = []
                 for concept in concepts_by_revision.get(revision.id, []):
                     names = [concept.normalized_label, *(normalize_term(alias) for alias in json.loads(concept.aliases_json))]
-                    if any(name and name in query for name in names):
+                    direct = any(name and name in query for name in names)
+                    expanded = concept.id in selected or any(
+                        name and name in phrase for phrase in phrases for name in names
+                    )
+                    if direct and concept.kind == "problem":
+                        direct_problem_match = True
+                    if direct or expanded:
                         score += 12 if concept.kind == "problem" else 6
                         matches.append(concept.label)
+                    if expanded and not direct:
+                        semantic_match = True
+                        score += 12
                 if score > 0:
                     scored.append({
                         **self._card(case, revision), "score": round(score, 6),
                         "matched_concepts": sorted(set(matches)),
+                        "match_method": "semantic" if semantic_match else "lexical",
                     })
-        return sorted(scored, key=lambda row: (-row["score"], row["id"]))[:payload.top_k]
+        ranked = sorted(scored, key=lambda row: (-row["score"], row["id"]))
+        return ranked[:top_k], direct_problem_match
+
+    def search(self, payload: CaseSearch) -> list[dict]:
+        query = normalize_term(payload.query)
+        lexical, direct_problem_match = self._rank_cases(query, payload.top_k)
+        if not _tokens(query) or direct_problem_match:
+            return lexical
+        try:
+            config = self.model.configuration()
+            with self.practice.factory() as session:
+                if not lexical and session.scalar(self._visible().with_only_columns(PracticeCase.id).limit(1)) is None:
+                    return []
+                concepts = self._published_problem_concepts(session)
+            expansion = self.model.interpret_query(payload.query, concepts, config)
+        except ValueError:
+            return lexical
+
+        allowed_ids = {concept["id"] for concept in concepts}
+        expansion.concept_ids = [concept_id for concept_id in expansion.concept_ids if concept_id in allowed_ids]
+        if not expansion.concept_ids and not expansion.search_phrases:
+            return lexical
+        ranked, _ = self._rank_cases(query, payload.top_k, expansion)
+        return ranked
 
     def graph(self, case_id: str, revision_number: int | None = None) -> dict:
         with self.practice.factory() as session:
@@ -156,33 +224,113 @@ class TrainingService:
                     edges.append({"source": node_id, "target": f"concept:{concept_id}", "relation": "回应"})
             return {"center": center, "nodes": nodes, "edges": edges}
 
+    @staticmethod
+    def _evidence_from_case(document: dict) -> dict[str, dict]:
+        return {
+            quote["id"]: {
+                **quote, "case_id": document["case_id"], "revision": document["revision"],
+                "case_title": document["title"], "field": name,
+                "source_title": document["source"]["title"],
+            }
+            for name, field in document["fields"].items()
+            for quote in field["evidence"][:2]
+        }
+
+    @staticmethod
+    def _model_evidence(evidence: dict[str, dict]) -> list[dict]:
+        return [{
+            key: entry[key] for key in (
+                "id", "quote", "field", "case_id", "revision", "case_title", "source_title", "locator_type", "locator_value",
+            )
+        } for entry in evidence.values()]
+
+    @staticmethod
+    def _model_case(document: dict) -> dict:
+        return {
+            "case_id": document["case_id"], "revision": document["revision"], "title": document["title"],
+            "source_title": document["source"]["title"],
+            "concepts": [concept["label"] for concept in document["concepts"]],
+            "applicability": document["applicability"][:450],
+            "fields": {
+                name: {"state": field["state"], "summary": field["summary"][:600]}
+                for name, field in document["fields"].items()
+            },
+        }
+
+    def _currently_visible(self, matches: list[dict]) -> set[tuple[str, int]]:
+        if not matches:
+            return set()
+        with self.practice.factory() as session:
+            return set(session.execute(
+                self._visible().with_only_columns(PracticeCase.id, PracticeRevision.revision)
+                .where(PracticeCase.id.in_([match["id"] for match in matches]))
+            ).tuples())
+
+    @staticmethod
+    def _evidence_fallback(evidence: dict[str, dict], language: str, *, evidence_changed: bool = False) -> dict:
+        quotes = [entry for entry in evidence.values() if entry["field"] == "strategy"][:3]
+        if evidence_changed:
+            answer = ("The available evidence changed while preparing this reply. Run the question again."
+                      if language == "en" else "回答生成期间，可用案例证据发生了变化。请重新提问。")
+        elif quotes:
+            answer = ("These excerpts describe strategies used in related cases. Their relevance depends on your classroom situation."
+                      if language == "en" else "这些引文记录了相关案例采用的策略。是否适用于你的班级取决于具体情境。")
+        else:
+            answer = ("The published cases provide too little evidence to answer this question."
+                      if language == "en" else "已发布案例暂缺足以回答这个教学问题的证据。")
+        return {
+            "mode": "evidence" if quotes else "insufficient",
+            "answer": answer, "evidence_fit": "indirect" if quotes else "none", "message": "",
+            "next_step": "", "clarifying_question": "", "reflection_questions": [],
+            "claims": [{"text": entry["quote"], "evidence": [entry]} for entry in quotes],
+        }
+
     def answer(self, payload: CaseSearch) -> dict:
-        matches = self.search(payload)
+        language = "en" if re.search(r"[A-Za-z]{2,}", payload.query) and not re.search(r"[\u3400-\u9fff]", payload.query) else "zh"
+        try:
+            config = self.model.configuration()
+        except ValueError:
+            config = None
+
+        lookup = TrainingDatabaseLookup(self, payload.top_k)
+        if config and config.get("provider") == "deepseek":
+            catalog = lookup.catalog(PublishedCaseCatalog())
+            if catalog["cases"]:
+                with self.practice.factory() as session:
+                    concepts = self._published_problem_concepts(session)
+                try:
+                    self.model.lookup_training_database(
+                        payload.query, concepts, catalog, TRAINING_DATABASE_TOOLS, lookup.invoke, config,
+                    )
+                except ValueError:
+                    pass
+
+        matches = lookup.candidates()
+        if matches:
+            lexical, _ = self._rank_cases(normalize_term(payload.query), payload.top_k)
+            matched_ids = {card["id"] for card in matches}
+            matches = (matches + [card for card in lexical if card["id"] not in matched_ids])[:payload.top_k]
+        else:
+            matches = self.search(payload)
+        available = self._currently_visible(matches)
+        matches = [match for match in matches if (match["id"], match["revision"]) in available]
+        case_context = []
         evidence = {}
         for match in matches[:5]:
             try:
                 document = self.case(match["id"], match["revision"])
             except PracticeNotFound:
                 continue
-            for name, field in document["fields"].items():
-                for quote in field["evidence"][:2]:
-                    evidence[quote["id"]] = {
-                        **quote, "case_id": match["id"], "revision": match["revision"],
-                        "case_title": match["title"], "field": name,
-                        "source_title": document["source"]["title"],
-                    }
-        if not evidence:
-            return {
-                "mode": "insufficient", "claims": [], "reflection_questions": [],
-                "message": "现有已发布案例缺少相关证据。可以补充教学场景、学生表现或已有尝试。",
-            }
-
+            case_context.append(self._model_case(document))
+            evidence.update(self._evidence_from_case(document))
+        if case_context:
+            lookup.trace.append({"action": "context", "count": len(case_context)})
         try:
-            config = self.model.configuration()
-            model_input = [
-                {key: entry[key] for key in ("id", "quote", "field", "case_title")} for entry in evidence.values()
-            ]
-            result = self.model.answer(payload.query, model_input, config)
+            if config is None:
+                raise ValueError("强模型未配置")
+            result = self.model.answer(
+                payload.query, self._model_evidence(evidence), config, cases=case_context, language=language,
+            )
             claims = []
             for claim in result.claims:
                 ids = list(dict.fromkeys(claim.evidence_ids))
@@ -191,38 +339,20 @@ class TrainingService:
                 claims.append({"text": claim.text, "evidence": [evidence[evidence_id] for evidence_id in ids]})
             response = {
                 "mode": "grounded" if claims else "insufficient", "claims": claims,
-                "reflection_questions": result.reflection_questions if claims else [],
+                "answer": result.answer, "evidence_fit": result.evidence_fit,
+                "next_step": result.next_step, "clarifying_question": result.clarifying_question,
+                "reflection_questions": result.reflection_questions,
                 "model": {**config, "prompt_version": ANSWER_PROMPT_VERSION},
-                "message": "" if claims else "检索结果的原文证据不足以回答这个问题。",
+                "message": "",
             }
         except ValueError:
-            strategies = [entry for entry in evidence.values() if entry["field"] == "strategy"]
-            response = {
-                "mode": "evidence", "reflection_questions": REFLECTIONS,
-                "message": "暂无法生成带引证的回答。下方列出当前检索命中的行动策略原文。",
-                "claims": [{"text": entry["quote"], "evidence": [entry]} for entry in strategies[:3]],
-            }
+            response = self._evidence_fallback(evidence, language)
 
-        available = {}
-        for claim in response["claims"]:
-            for quote in claim["evidence"]:
-                key = (quote["case_id"], quote["revision"])
-                if key not in available:
-                    try:
-                        self.case(*key)
-                        available[key] = True
-                    except PracticeNotFound:
-                        available[key] = False
-        response["claims"] = [
-            claim for claim in response["claims"]
-            if all(available[(quote["case_id"], quote["revision"])] for quote in claim["evidence"])
-        ]
-        if not response["claims"] and response["mode"] != "insufficient":
-            return {
-                "mode": "insufficient", "claims": [], "reflection_questions": [],
-                "message": "本次回答所需原文目前不可用，请重新检索。",
-            }
-        return response
+        available = self._currently_visible(matches)
+        visible_matches = [match for match in matches if (match["id"], match["revision"]) in available]
+        if any((case["case_id"], case["revision"]) not in available for case in case_context):
+            response = self._evidence_fallback({}, language, evidence_changed=True)
+        return {**response, "language": language, "matches": visible_matches, "lookup_trace": lookup.trace}
 
     def evaluate(self, payload: CaseEvaluation) -> dict:
         results = []
